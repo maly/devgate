@@ -1,0 +1,64 @@
+{
+  "name": "devgate",
+  "version": "1.0.0",
+  "description": "Local HTTPS reverse proxy tool for development with sslip.io hostname resolution",
+  "main": "./api/index.js",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./api/index.js"
+    },
+    "./cli": {
+      "import": "./cli/index.js"
+    },
+    "./config": {
+      "import": "./config/index.js"
+    },
+    "./proxy": {
+      "import": "./proxy/index.js"
+    },
+    "./cert": {
+      "import": "./cert/index.js"
+    },
+    "./dashboard": {
+      "import": "./dashboard/index.js"
+    },
+    "./health": {
+      "import": "./health/index.js"
+    }
+  },
+  "bin": {
+    "devgate": "./cli/bin/devgate.js"
+  },
+  "scripts": {
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:ui": "vitest ui",
+    "lint": "echo \"Linting not configured\"",
+    "start": "node cli/bin/devgate.js start",
+    "validate": "node cli/bin/devgate.js validate",
+    "doctor": "node cli/bin/devgate.js doctor"
+  },
+  "keywords": [
+    "proxy",
+    "https",
+    "development",
+    "reverse-proxy",
+    "sslip.io",
+    "local-development"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1",
+    "selfsigned": "^5.5.0",
+    "ws": "^8.18.0",
+    "yaml": "^2.8.2"
+  }
+}

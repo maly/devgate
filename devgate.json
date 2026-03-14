@@ -1,0 +1,28 @@
+{
+  "routes": [
+    {
+      "alias": "app",
+      "target": {
+        "protocol": "http",
+        "host": "localhost",
+        "port": 10001
+      }
+    },
+    {
+      "alias": "api",
+      "target": {
+        "protocol": "http",
+        "host": "localhost",
+        "port": 10002
+      }
+    },
+    {
+      "alias": "admin",
+      "target": {
+        "protocol": "http",
+        "host": "localhost",
+        "port": 10003
+      }
+    }
+  ]
+}
