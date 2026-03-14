@@ -26,11 +26,11 @@ Deliver npm beta readiness by adding:
 Two additions integrate into existing modules while preserving boundaries.
 
 ### 2.1 Config Watcher in proxy lifecycle
-Location: `proxy/index.js` (or minimal companion module owned by proxy)
+Location: `proxy/config-watcher.js` (owned by proxy, started/stopped only by `proxy/index.js`)
 
 Responsibilities:
 - watch active config file (`devgate.json|yaml|yml`),
-- debounce rapid file change bursts,
+- debounce rapid file change bursts (default 350 ms, configurable 250-500 ms),
 - run safe reload pipeline: load -> validate -> resolve,
 - atomically swap active route table only on successful pipeline,
 - emit success/failure events for observability.
@@ -49,6 +49,32 @@ Responsibilities:
 
 This avoids tight coupling of dashboard with core proxy internals.
 
+State schema (beta contract):
+- `runtime`:`r`n  - `ready` (boolean, false until first complete snapshot is available)`r`n  - `isRunning` (boolean)
+  - `httpsPort` (number)
+  - `httpRedirectPort` (number)
+  - `ip` (string)
+  - `hostnameStrategy` (string)
+  - `configPath` (string)
+- `reload`:
+  - `lastReloadAt` (ISO string or null)
+  - `lastReloadStatus` (`never|success|failed`)
+  - `lastReloadError` (string or null)
+  - `activeConfigVersion` (number, starts at 1 for initial boot success)
+- `cert`:
+  - `mode` (`mkcert|self-signed|unknown`)
+  - `certPath` (string or null)
+  - `keyPath` (string or null)
+  - `expiresAt` (ISO string or null)
+- `routes` (array):
+  - `alias` (string)
+  - `target` (`protocol://host:port` string)
+  - `url` (string)
+  - `health` (`healthy|unhealthy|unknown`)
+- `health`:
+  - `updatedAt` (ISO string or null)
+  - `summary` (`healthy|degraded|unknown`)
+
 ## 3. Component Responsibilities
 
 ### `proxy/index.js`
@@ -56,6 +82,12 @@ This avoids tight coupling of dashboard with core proxy internals.
 - Guard against concurrent reloads (single-flight).
 - Keep `last-known-good` runtime config + route map.
 - Emit `config:reloaded` and `config:reload_failed` events.
+- Feed runtime state via explicit updater API:
+  - `updateRuntime(partial)`
+  - `updateReload(partial)`
+  - `updateRoutes(routes)`
+  - `updateHealth(partial)`
+  - `updateCert(partial)`
 
 ### `config/index.js`
 - Reuse existing `loadConfig`, `validateConfig`, and `resolveRuntimeConfig`.
@@ -76,6 +108,19 @@ Render read-only sections:
 - hot-reload status (last reload time, last result, last error),
 - certificate status summary.
 
+Event payload contract:
+- `config:reloaded`:
+  - `timestamp` (ISO string)
+  - `configPath` (string)
+  - `activeConfigVersion` (number)
+  - `routeCount` (number)
+- `config:reload_failed`:
+  - `timestamp` (ISO string)
+  - `configPath` (string)
+  - `errorCode` (`parse_error|validation_error|resolve_error|watch_error|read_error`)
+  - `errorMessage` (string)
+  - `activeConfigVersion` (number, unchanged)
+
 ## 4. Data Flows
 
 ### 4.1 Hot-reload success flow
@@ -93,6 +138,15 @@ Render read-only sections:
 4. Runtime state updates to `failed` with error details.
 5. Dashboard and logs show failure while proxy keeps serving previous config.
 
+### 4.3 Startup and initial state flow
+1. Process starts and loads initial config through normal startup pipeline.
+2. If startup load succeeds:
+   - `activeConfigVersion` is set to `1`,
+   - `lastReloadStatus` remains `never`,
+   - `lastReloadAt` and `lastReloadError` are `null`,
+   - dashboard is marked ready after first runtime/cert/routes snapshot write.
+3. If startup load fails, process exits as it does today (no watcher loop with invalid boot state).
+
 ## 5. Error Handling and Safety Model
 
 - Atomic apply only after full validation.
@@ -101,6 +155,12 @@ Render read-only sections:
 - Debounce to avoid editor write storms.
 - Verbose logs include file path + concise failure reason.
 - Dashboard remains read-only in beta for reduced risk.
+- Watcher failure modes:
+  - config file deleted/renamed: keep last-known-good active, set reload status `failed`, surface `read_error`.
+  - permission denied/read failure: keep serving current config, surface `read_error`.
+  - partial writes/transient parse errors: treat as normal reload failure (`parse_error`), keep current config.
+  - watcher backend errors: emit `watch_error`, keep current config, keep watcher alive where possible.
+- Recovery rule: next valid config change after any failure must reload normally and clear `lastReloadError`.
 
 ## 6. Testing Strategy (Vitest)
 
@@ -115,6 +175,7 @@ Primary gate is existing `npm test` (Vitest).
 - running proxy reloads valid config without restart.
 - invalid config does not alter active routes.
 - subsequent valid config recovers from previous failed reload.
+- file delete/rename and permission error scenarios keep proxy serving last-known-good config.
 
 ### E2E smoke
 - `devgate start` boots,
@@ -122,6 +183,11 @@ Primary gate is existing `npm test` (Vitest).
 - `doctor` remains functional,
 - dashboard endpoint responds with expected status sections,
 - http/ws routing still works after at least one hot-reload.
+
+### Concurrency and debounce tests
+- burst edits trigger at most one effective reload per debounce window.
+- while reload is in-flight, additional file events do not run concurrent reloads.
+- queued change after in-flight completion triggers one subsequent reload pass.
 
 ## 7. Beta Release Criteria
 
@@ -142,3 +208,4 @@ Before publish (`npm publish --tag beta`):
 
 - Whether to include per-route latency/error-rate counters in beta dashboard (currently excluded by YAGNI).
 - Whether config watcher should support explicit polling fallback on network filesystems (defer unless needed).
+
