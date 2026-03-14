@@ -1,4 +1,4 @@
-import { promises as fs } from 'fs';
+import { promises as fs, readFileSync, existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
@@ -34,12 +34,169 @@ export class CertManager {
 
     try {
       const result = execSync('mkcert --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-      this._mkcertAvailable = result.includes('mkcert');
+      this._mkcertAvailable = result.includes('mkcert') || result.match(/v\d+\.\d+\.\d+/);
     } catch (error) {
       this._mkcertAvailable = false;
     }
 
     return this._mkcertAvailable;
+  }
+
+  /**
+   * Try to install mkcert automatically
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  async installMkcert() {
+    const platform = process.platform;
+    const results = { success: false, message: '' };
+
+    if (platform === 'win32') {
+      return this._installMkcertWindows();
+    } else if (platform === 'darwin') {
+      return this._installMkcertMac();
+    } else {
+      return this._installMkcertLinux();
+    }
+  }
+
+  async _installMkcertWindows() {
+    try {
+      try {
+        const wingetResult = execSync('winget --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+        if (wingetResult.includes('winget')) {
+          console.log('Installing mkcert via winget...');
+          execSync('winget install -e --id FiloSottile.mkcert --accept-source-agreements --accept-package-agreements', { stdio: 'inherit' });
+          
+          const verify = await this.checkMkcert();
+          if (verify) {
+            console.log('Running mkcert -install to create local CA...');
+            try {
+              execSync('mkcert -install', { stdio: 'inherit' });
+              return { success: true, message: 'mkcert installed and CA created successfully via winget' };
+            } catch {
+              return { success: true, message: 'mkcert installed successfully via winget. Run "mkcert -install" manually to create CA.' };
+            }
+          }
+        }
+      } catch {
+      }
+
+      try {
+        const chocoResult = execSync('choco --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+        if (chocoResult.includes('Chocolatey')) {
+          console.log('Installing mkcert via Chocolatey...');
+          execSync('choco install mkcert -y', { stdio: 'inherit' });
+          
+          const verify = await this.checkMkcert();
+          if (verify) {
+            console.log('Running mkcert -install to create local CA...');
+            try {
+              execSync('mkcert -install', { stdio: 'inherit' });
+              return { success: true, message: 'mkcert installed and CA created successfully via Chocolatey' };
+            } catch {
+              return { success: true, message: 'mkcert installed successfully via Chocolatey. Run "mkcert -install" manually to create CA.' };
+            }
+          }
+        }
+      } catch {
+      }
+
+      return { 
+        success: false, 
+        message: 'Could not install mkcert automatically. Please install manually:\n  winget install -e --id FiloSottile.mkcert\n  or\n  choco install mkcert'
+      };
+    } catch (error) {
+      return { success: false, message: `Failed to install mkcert: ${error.message}` };
+    }
+  }
+
+  async _installMkcertMac() {
+    try {
+      const brewResult = execSync('brew --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+      if (brewResult.includes('Homebrew')) {
+        console.log('Installing mkcert via Homebrew...');
+        execSync('brew install mkcert', { stdio: 'inherit' });
+        
+        const verify = await this.checkMkcert();
+        if (verify) {
+          console.log('Running mkcert -install to create local CA...');
+          try {
+            execSync('mkcert -install', { stdio: 'inherit' });
+            return { success: true, message: 'mkcert installed and CA created successfully via Homebrew' };
+          } catch {
+            return { success: true, message: 'mkcert installed successfully via Homebrew. Run "mkcert -install" manually to create CA.' };
+          }
+        }
+      }
+      
+      return { 
+        success: false, 
+        message: 'Could not install mkcert automatically. Please install manually:\n  brew install mkcert'
+      };
+    } catch (error) {
+      return { success: false, message: `Failed to install mkcert: ${error.message}` };
+    }
+  }
+
+  async _installMkcertLinux() {
+    try {
+      const hasApt = await this._commandExists('apt');
+      const hasYum = await this._commandExists('yum');
+      const hasDnf = await this._commandExists('dnf');
+      
+      if (hasApt) {
+        console.log('Installing mkcert via apt...');
+        execSync('sudo apt install libnss3-tools', { stdio: 'inherit' });
+        execSync('sudo apt install mkcert', { stdio: 'inherit' });
+        
+        const verify = await this.checkMkcert();
+        if (verify) {
+          console.log('Running mkcert -install to create local CA...');
+          try {
+            execSync('sudo mkcert -install', { stdio: 'inherit' });
+            return { success: true, message: 'mkcert installed and CA created successfully via apt' };
+          } catch {
+            return { success: true, message: 'mkcert installed successfully via apt. Run "sudo mkcert -install" manually to create CA.' };
+          }
+        }
+      } else if (hasYum || hasDnf) {
+        const pkgManager = hasDnf ? 'dnf' : 'yum';
+        console.log(`Installing mkcert via ${pkgManager}...`);
+        execSync(`sudo ${pkgManager} install nss-tools`, { stdio: 'inherit' });
+        
+        const arch = process.arch === 'x64' ? 'amd64' : 'arm64';
+        const version = 'v1.4.4';
+        execSync(`sudo curl -L -o /usr/local/bin/mkcert https://github.com/FiloSottile/mkcert/releases/download/${version}/mkcert-${version}-linux-${arch}`, { stdio: 'inherit' });
+        execSync('sudo chmod +x /usr/local/bin/mkcert', { stdio: 'inherit' });
+        
+        const verify = await this.checkMkcert();
+        if (verify) {
+          console.log('Running sudo mkcert -install to create local CA...');
+          try {
+            execSync('sudo mkcert -install', { stdio: 'inherit' });
+            return { success: true, message: 'mkcert installed and CA created successfully' };
+          } catch {
+            return { success: true, message: 'mkcert installed successfully. Run "sudo mkcert -install" manually to create CA.' };
+          }
+        }
+      }
+      
+      return { 
+        success: false, 
+        message: 'Could not install mkcert automatically. Please install manually:\n  sudo apt install mkcert  # Debian/Ubuntu\n  sudo dnf install mkcert  # Fedora'
+      };
+    } catch (error) {
+      return { success: false, message: `Failed to install mkcert: ${error.message}` };
+    }
+  }
+
+  async _commandExists(command) {
+    try {
+      execSync(`which ${command}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -61,16 +218,50 @@ export class CertManager {
   async _areCertificatesValid(hostnames) {
     try {
       const certData = await fs.readFile(this.certPath, 'utf8');
-      const certObj = crypto.X509Certificate.createFromPem(certData);
       
-      const expirationDate = new Date(certObj.validTo);
+      let expirationDate;
+      let subjectAltName;
+      
+      try {
+        if (typeof crypto.X509Certificate.createFromPem === 'function') {
+          const certObj = crypto.X509Certificate.createFromPem(certData);
+          expirationDate = new Date(certObj.validTo);
+          subjectAltName = certObj.subjectAltName;
+        } else if (typeof crypto.X509Certificate === 'function') {
+          const certObj = new crypto.X509Certificate(certData);
+          expirationDate = new Date(certObj.validTo);
+          subjectAltName = certObj.subjectAltName;
+        } else {
+          const expMatch = certData.match(/notAfter=([^,\n]+)/);
+          if (expMatch) {
+            expirationDate = new Date(expMatch[1]);
+          } else {
+            return false;
+          }
+          const sanMatch = certData.match(/subjectAltName=([^,\n]+)/);
+          if (sanMatch) {
+            subjectAltName = sanMatch[1];
+          }
+        }
+      } catch (parseErr) {
+        const expMatch = certData.match(/notAfter=([^,\n]+)/);
+        if (expMatch) {
+          expirationDate = new Date(expMatch[1]);
+        } else {
+          return false;
+        }
+        const sanMatch = certData.match(/subjectAltName=([^,\n]+)/);
+        if (sanMatch) {
+          subjectAltName = sanMatch[1];
+        }
+      }
+      
       const now = new Date();
       if (expirationDate < now) {
         return false;
       }
       this.expiration = expirationDate.toISOString();
 
-      const subjectAltName = certObj.subjectAltName;
       if (!subjectAltName) {
         return false;
       }
@@ -125,8 +316,19 @@ export class CertManager {
       this.mode = 'mkcert';
       
       const certData = await fs.readFile(certFile, 'utf8');
-      const certObj = crypto.X509Certificate.createFromPem(certData);
-      this.expiration = new Date(certObj.validTo).toISOString();
+      
+      if (typeof crypto.X509Certificate.createFromPem === 'function') {
+        const certObj = crypto.X509Certificate.createFromPem(certData);
+        this.expiration = new Date(certObj.validTo).toISOString();
+      } else if (typeof crypto.X509Certificate === 'function') {
+        const certObj = new crypto.X509Certificate(certData);
+        this.expiration = new Date(certObj.validTo).toISOString();
+      } else {
+        const match = certData.match(/notAfter=([^,\n]+)/);
+        if (match) {
+          this.expiration = new Date(match[1]).toISOString();
+        }
+      }
 
       return true;
     } catch (error) {
@@ -224,13 +426,31 @@ export class CertManager {
    * @returns {Object} Certificate info
    */
   getCertificateInfo() {
-    return {
-      mode: this.mode,
-      certPath: this.certPath,
-      keyPath: this.keyPath,
-      expiration: this.expiration,
-      certDir: this.certDir
-    };
+    try {
+      const certContent = existsSync(this.certPath) ? readFileSync(this.certPath, 'utf8') : null;
+      const keyContent = existsSync(this.keyPath) ? readFileSync(this.keyPath, 'utf8') : null;
+      
+      return {
+        mode: this.mode,
+        certPath: this.certPath,
+        keyPath: this.keyPath,
+        expiration: this.expiration,
+        certDir: this.certDir,
+        cert: certContent,
+        key: keyContent
+      };
+    } catch (error) {
+      console.error('[cert] Error reading certificate:', error.message);
+      return {
+        mode: this.mode,
+        certPath: this.certPath,
+        keyPath: this.keyPath,
+        expiration: this.expiration,
+        certDir: this.certDir,
+        cert: null,
+        key: null
+      };
+    }
   }
 
   /**

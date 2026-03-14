@@ -78,6 +78,14 @@ export function createProxy(options = {}) {
       return;
     }
 
+    if (routeConfig.isDashboard) {
+      const { renderDashboard } = require('./dashboard/index.js');
+      const html = renderDashboard(routeConfig.dashboardConfig, routeConfig.dashboardHostnames);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
+
     const {
       target,
       changeOrigin = true,
@@ -130,10 +138,18 @@ export function createProxy(options = {}) {
     return new Promise((resolve, reject) => {
       try {
         if (ssl && ssl.key && ssl.cert) {
-          const httpsOptions = {
-            key: typeof ssl.key === 'string' ? readFileSync(ssl.key) : ssl.key,
-            cert: typeof ssl.cert === 'string' ? readFileSync(ssl.cert) : ssl.cert
-          };
+          let key = ssl.key;
+          let cert = ssl.cert;
+          
+          if (typeof key === 'string' && !key.includes('-----BEGIN')) {
+            key = readFileSync(key);
+          }
+          
+          if (typeof cert === 'string' && !cert.includes('-----BEGIN')) {
+            cert = readFileSync(cert);
+          }
+          
+          const httpsOptions = { key, cert };
           
           httpsServer = https.createServer(httpsOptions, requestHandler);
           

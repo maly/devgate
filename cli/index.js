@@ -2,6 +2,9 @@ import { loadConfig, validateConfig, resolveRuntimeConfig, getDefaultConfig } fr
 import { detectLocalIp } from '../api/ip-detection.js';
 import { buildHostnames } from '../api/hostname-builder.js';
 import { CertManager } from '../cert/index.js';
+import { createProxy } from '../proxy/index.js';
+import { renderDashboard } from '../dashboard/index.js';
+import { HealthChecker } from '../health/index.js';
 import os from 'os';
 import { existsSync } from 'fs';
 import { createServer } from 'net';
@@ -175,6 +178,22 @@ function printCommandHelp(command) {
     --verbose, -v            Show verbose output
     --help, -h              Show this help`,
 
+    'install-mkcert': `devgate install-mkcert
+  Install mkcert automatically
+
+  This command attempts to install mkcert using:
+    - Windows: winget or Chocolatey
+    - macOS: Homebrew
+    - Linux: apt or dnf
+
+  If automatic installation fails, you will receive
+  manual installation instructions.
+
+  After installation, run: mkcert -install
+
+  Options:
+    --help, -h              Show this help`,
+
     '': `devgate <command> [options]
   A local HTTPS reverse proxy tool for development
 
@@ -184,6 +203,7 @@ function printCommandHelp(command) {
     print-config     Print effective configuration
     print-hosts      Print generated hostnames
     doctor           Run diagnostics
+    install-mkcert  Install mkcert automatically
 
   Options:
     --help, -h         Show help for a command
@@ -232,7 +252,7 @@ async function startCommand(args) {
     return { exitCode: 0 };
   }
 
-  const { runtimeConfig } = await prepareConfig(options);
+  const { runtimeConfig, fileConfig } = await prepareConfig(options);
 
   const ipResult = detectLocalIp({ preferredIp: options.ip || runtimeConfig.preferredIp });
   if (!ipResult) {
@@ -246,13 +266,115 @@ async function startCommand(args) {
 
   console.log('Starting devgate proxy server...');
   console.log(`  HTTPS port: ${runtimeConfig.httpsPort}`);
-  console.log(`  HTTP redirect port: ${runtimeConfig.httpRedirectPort}`);
+  console.log(`  HTTP redirect port: ${runtimeConfig.httpRedirectPort || 'disabled'}`);
   console.log(`  Dashboard: ${runtimeConfig.dashboardEnabled ? 'enabled' : 'disabled'}`);
   console.log(`  Local IP: ${ipResult.ip}`);
   console.log('');
-  console.log('Proxy server functionality not yet implemented.');
 
-  return { exitCode: 0 };
+  const hostnames = buildHostnames(runtimeConfig, { ip: ipResult.ip });
+  
+  console.log('Hostnames:');
+  console.log(`  Dashboard: https://${hostnames.dashboard.hostname}`);
+  for (const route of hostnames.routes) {
+    console.log(`  ${route.alias}: https://${route.hostname}`);
+  }
+  console.log('');
+
+  const certManager = new CertManager({
+    certDir: runtimeConfig.certDir,
+    selfSignedFallback: options.selfSignedFallback || runtimeConfig.selfSignedFallback
+  });
+
+  const mkcertAvailable = await certManager.checkMkcert();
+  if (!mkcertAvailable) {
+    console.log('Warning: mkcert not found. Using self-signed certificates.');
+    console.log('  Run "devgate install-mkcert" to install mkcert for trusted certificates.');
+  }
+
+  const allHostnames = [
+    hostnames.dashboard.hostname,
+    ...hostnames.routes.map(r => r.hostname)
+  ];
+
+  console.log('Ensuring certificates...');
+  await certManager.ensureCertificates(allHostnames);
+  const certInfo = certManager.getCertificateInfo();
+  console.log(`  Certificate mode: ${certInfo.mode || 'self-signed'}`);
+  console.log('');
+
+  const routesMap = {};
+  for (const route of runtimeConfig.routes) {
+    const routeHostname = hostnames.routes.find(h => h.alias === route.alias);
+    if (routeHostname) {
+      routesMap[routeHostname.hostname] = {
+        target: `${route.target.protocol}://${route.target.host}:${route.target.port}`,
+        changeOrigin: true,
+        headers: route.headers || {},
+        stripPrefix: route.stripPrefix || ''
+      };
+    }
+  }
+
+  if (runtimeConfig.dashboardEnabled) {
+    routesMap[hostnames.dashboard.hostname] = {
+      target: null,
+      isDashboard: true,
+      dashboardConfig: runtimeConfig,
+      dashboardHostnames: hostnames
+    };
+  }
+
+  console.log('Starting proxy server...');
+  
+  const proxy = createProxy({
+    port: runtimeConfig.httpsPort,
+    defaultPort: runtimeConfig.httpRedirectPort,
+    routes: routesMap,
+    ssl: {
+      cert: certInfo.cert,
+      key: certInfo.key
+    }
+  });
+
+  proxy.on('config-change', (newConfig) => {
+    console.log('[devgate] Configuration reloaded');
+  });
+
+  await proxy.start();
+  console.log(`  Proxy server running on https://localhost:${runtimeConfig.httpsPort}`);
+  console.log('');
+
+  let healthChecker = null;
+  const routesWithHealthcheck = runtimeConfig.routes.filter(r => r.healthcheck);
+  if (routesWithHealthcheck.length > 0) {
+    console.log('Starting health checks...');
+    healthChecker = new HealthChecker(routesWithHealthcheck, {
+      interval: 30000,
+      timeout: 5000
+    });
+    healthChecker.start();
+  }
+
+  console.log('Press Ctrl+C to stop the server');
+  console.log('');
+
+  const shutdown = async () => {
+    console.log('\nShutting down...');
+    if (healthChecker) {
+      healthChecker.stop();
+    }
+    await proxy.stop();
+    console.log('Server stopped.');
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
+  console.log('');
+  console.log('Server is running. Press Ctrl+C to stop.');
+  
+  await new Promise(() => {});
 }
 
 /**
@@ -378,6 +500,7 @@ async function doctorCommand(args) {
   } else {
     console.log('  Status: Not found');
     console.log('  Warning: mkcert not found. Will use self-signed certificates.');
+    console.log('  Tip: Run "devgate install-mkcert" to install automatically');
   }
   console.log('');
 
@@ -510,6 +633,41 @@ async function doctorCommand(args) {
   }
 }
 
+async function installMkcertCommand(args) {
+  const options = parseArgs(args);
+  
+  if (options.help) {
+    printCommandHelp('install-mkcert');
+    return { exitCode: 0 };
+  }
+
+  console.log('mkcert Installation\n');
+  
+  const certManager = new CertManager();
+  const isAvailable = await certManager.checkMkcert();
+  
+  if (isAvailable) {
+    console.log('mkcert is already installed!');
+    const result = execSync('mkcert --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    console.log(`Version: ${result.trim()}`);
+    return { exitCode: 0 };
+  }
+
+  console.log('mkcert not found. Attempting to install...\n');
+  
+  const result = await certManager.installMkcert();
+  
+  if (result.success) {
+    console.log(`\n${result.message}`);
+    console.log('\nNote: You may need to restart your terminal for mkcert to be available in PATH.');
+    console.log('After restarting, run: mkcert -install');
+  } else {
+    console.log(`\n${result.message}`);
+  }
+  
+  return { exitCode: result.success ? 0 : 1 };
+}
+
 async function run(args = process.argv.slice(2)) {
   const command = args[0];
 
@@ -528,7 +686,8 @@ async function run(args = process.argv.slice(2)) {
     'validate': validateCommand,
     'print-config': printConfigCommand,
     'print-hosts': printHostsCommand,
-    'doctor': doctorCommand
+    'doctor': doctorCommand,
+    'install-mkcert': installMkcertCommand
   };
 
   if (command.startsWith('--configure') || command === '-configure') {
