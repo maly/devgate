@@ -198,6 +198,32 @@ The proxy cannot reach the target service.
 
 2. **Ensure health endpoint returns 200**
 
+### Dashboard shows reload status `failed`
+
+Most common causes:
+
+1. Invalid JSON/YAML syntax in config file.
+2. Validation error (for example, invalid alias or missing target fields).
+3. Temporary partial write while editor is saving.
+
+What to do:
+
+1. Run `devgate validate --config ./devgate.json`.
+2. Fix the reported parse/validation errors.
+3. Save the file again and verify the dashboard moves from `failed` to `success`.
+
+Note: while status is `failed`, devgate keeps the last-known-good configuration active.
+
+### Dashboard `ready` remains false
+
+`ready` becomes `true` only after runtime, routes, cert, and health snapshots have been initialized.
+
+If it stays false:
+
+1. Check startup logs for initialization errors.
+2. Run `devgate doctor --verbose`.
+3. Confirm certificate setup and route bootstrap completed successfully.
+
 ## Windows-Specific Issues
 
 ### Windows Defender Firewall

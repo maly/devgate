@@ -219,6 +219,26 @@ This checks:
 - Certificate cache
 - Generated hostnames
 
+## Hot Reload Lifecycle
+
+When `devgate start` runs with a config file, devgate watches that file and applies changes without restart.
+
+- `never`: no successful reload was executed yet after process start.
+- `success`: the latest config change was parsed, validated, and applied.
+- `failed`: the latest config change failed parse/validation/apply checks.
+
+If reload fails, devgate keeps the last-known-good routing active. This means traffic keeps flowing with the previous valid configuration until the next valid save is detected.
+
+## Dashboard Status Semantics
+
+The dashboard is read-only in beta and shows:
+
+- Runtime: `ready`, running status, ports, IP, strategy.
+- Last reload: status (`never|success|failed`), timestamp, error text, active config version.
+- Certificate: mode (`mkcert` or `self-signed`), paths, expiration.
+- Health: summary and last update time.
+- Routes: alias, upstream target, public URL, route health.
+
 ## ESM API Usage
 
 You can also use devgate programmatically:

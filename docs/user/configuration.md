@@ -224,3 +224,23 @@ This checks:
 - DNS-safe alias names
 - Required fields
 - Protocol values
+
+## Hot Reload Lifecycle
+
+When started with `devgate start`, the active config file is watched and reloaded automatically.
+
+- `never`: startup state before any successful reload pass.
+- `success`: latest change passed parse + validation + apply.
+- `failed`: latest change failed in parse/validation/apply.
+
+Reload failures do not replace active routes. Devgate keeps the last-known-good configuration until a new valid change is detected.
+
+## Dashboard Fields
+
+Dashboard displays the following runtime semantics:
+
+- Runtime: `ready`, `isRunning`, ports, IP, hostname strategy.
+- Reload: `lastReloadStatus`, `lastReloadAt`, `lastReloadError`, `activeConfigVersion`.
+- Certificate: `mode`, `certPath`, `keyPath`, `expiresAt`.
+- Health: summary (`healthy|degraded|unknown`) and `updatedAt`.
+- Routes: alias, target, generated URL, per-route health status.
