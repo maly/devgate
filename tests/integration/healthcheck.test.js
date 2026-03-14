@@ -1,18 +1,45 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { HealthChecker } from '../../health/index.js';
+import { createProxy } from '../../proxy/index.js';
+import { syncHealthToProxy } from '../../cli/index.js';
 import http from 'node:http';
 
 describe('HealthChecker', () => {
   let healthServer;
   let healthPort;
   let healthChecker;
+  let proxy;
+  let proxyPort;
+
+  const makeRequest = (port, requestPath, hostHeader) => {
+    return new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: 'localhost',
+        port,
+        path: requestPath,
+        method: 'GET',
+        headers: hostHeader ? { Host: hostHeader } : {}
+      }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => (body += chunk));
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  };
 
   beforeEach(async () => {
     healthPort = 19800 + Math.floor(Math.random() * 500);
+    proxyPort = 18800 + Math.floor(Math.random() * 500);
     healthChecker = new HealthChecker({ interval: 1000, timeout: 500 });
   });
 
   afterEach(async () => {
+    if (proxy) {
+      await proxy.stop();
+      proxy = null;
+    }
     if (healthChecker) {
       healthChecker.stopAll();
     }
@@ -188,5 +215,70 @@ describe('HealthChecker', () => {
     expect(status.status).toBe('healthy');
 
     await new Promise((resolve) => healthServer.close(resolve));
+  });
+
+  it('updates dashboard health snapshot when health status changes', async () => {
+    healthServer = http.createServer((req, res) => {
+      if (req.url === '/health') {
+        res.writeHead(200);
+        res.end('OK');
+        return;
+      }
+      res.writeHead(200);
+      res.end('service');
+    });
+
+    await new Promise((resolve) => healthServer.listen(healthPort, resolve));
+
+    const runtimeConfig = {
+      routes: [
+        {
+          alias: 'api',
+          target: { protocol: 'http', host: 'localhost', port: healthPort },
+          healthcheck: '/health'
+        }
+      ]
+    };
+    const hostnames = {
+      dashboard: { hostname: 'dev.192-168-1-1.sslip.io' },
+      routes: [{ alias: 'api', hostname: 'api.192-168-1-1.sslip.io' }]
+    };
+
+    proxy = createProxy({
+      routes: {
+        [hostnames.dashboard.hostname]: {
+          isDashboard: true,
+          getDashboardData: () => ({ runtimeState: proxy.getRuntimeState() })
+        }
+      },
+      port: proxyPort,
+      defaultPort: null
+    });
+    proxy.setRuntimeState({ ready: false });
+    proxy.setRoutesState([
+      {
+        alias: 'api',
+        target: `http://localhost:${healthPort}`,
+        url: `https://${hostnames.routes[0].hostname}`,
+        health: 'unknown'
+      }
+    ]);
+
+    await proxy.start();
+
+    const response1 = await makeRequest(proxyPort, '/', hostnames.dashboard.hostname);
+    expect(response1.body).toContain('unknown');
+    expect(response1.body).toContain('Ready');
+    expect(response1.body).toContain('false');
+
+    healthChecker.updateRoutes(runtimeConfig.routes);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    syncHealthToProxy(proxy, healthChecker, runtimeConfig, hostnames);
+    proxy.setRuntimeState({ ready: true });
+
+    const response2 = await makeRequest(proxyPort, '/', hostnames.dashboard.hostname);
+    expect(response2.body).toContain('healthy');
+    expect(response2.body).toContain('Ready');
+    expect(response2.body).toContain('true');
   });
 });

@@ -11,6 +11,35 @@ import { createServer } from 'net';
 
 const DEFAULT_CONFIG_PATH = './devgate.json';
 
+function buildRuntimeRoutesSnapshot(runtimeConfig, hostnames, healthMap = new Map()) {
+  return runtimeConfig.routes.map((route) => {
+    const hostnameEntry = hostnames.routes.find((h) => h.alias === route.alias);
+    const health = healthMap.get(route.alias);
+    return {
+      alias: route.alias,
+      target: `${route.target.protocol}://${route.target.host}:${route.target.port}`,
+      url: hostnameEntry ? `https://${hostnameEntry.hostname}` : null,
+      health: health?.status || 'unknown'
+    };
+  });
+}
+
+export function syncHealthToProxy(proxyInstance, healthChecker, runtimeConfig, hostnames) {
+  const healthMap = healthChecker.getAllHealthStatus();
+  const values = Array.from(healthMap.values());
+  const summary = values.length === 0
+    ? 'unknown'
+    : values.every((s) => s.status === 'healthy')
+      ? 'healthy'
+      : 'degraded';
+
+  proxyInstance.setHealthState({
+    summary,
+    updatedAt: new Date().toISOString()
+  });
+  proxyInstance.setRoutesState(buildRuntimeRoutesSnapshot(runtimeConfig, hostnames, healthMap));
+}
+
 function parseArgs(args) {
   const options = {
     configPath: null,
@@ -315,44 +344,71 @@ async function startCommand(args) {
     }
   }
 
+  let proxy;
+
   if (runtimeConfig.dashboardEnabled) {
     routesMap[hostnames.dashboard.hostname] = {
       target: null,
       isDashboard: true,
-      dashboardConfig: runtimeConfig,
-      dashboardHostnames: hostnames
+      getDashboardData: () => ({
+        runtimeState: proxy ? proxy.getRuntimeState() : null
+      })
     };
   }
 
   console.log('Starting proxy server...');
   
-  const proxy = createProxy({
+  proxy = createProxy({
     port: runtimeConfig.httpsPort,
     defaultPort: runtimeConfig.httpRedirectPort,
     routes: routesMap,
+    configPath: options.configPath || DEFAULT_CONFIG_PATH,
+    runtimeOptions: {
+      preferredIp: runtimeConfig.preferredIp,
+      hostnameStrategy: runtimeConfig.hostnameStrategy
+    },
     ssl: {
       cert: certInfo.cert,
       key: certInfo.key
     }
   });
 
+  proxy.setRuntimeState({
+    ready: false,
+    ip: ipResult.ip,
+    hostnameStrategy: runtimeConfig.hostnameStrategy
+  });
+  proxy.setCertState({
+    mode: certInfo.mode || 'unknown',
+    certPath: certInfo.certPath || null,
+    keyPath: certInfo.keyPath || null,
+    expiresAt: certInfo.expiration || null
+  });
+  proxy.setRoutesState(buildRuntimeRoutesSnapshot(runtimeConfig, hostnames));
+
   proxy.on('config-change', (newConfig) => {
     console.log('[devgate] Configuration reloaded');
   });
 
   await proxy.start();
+  proxy.setRuntimeState({ ready: true });
   console.log(`  Proxy server running on https://localhost:${runtimeConfig.httpsPort}`);
   console.log('');
 
   let healthChecker = null;
+  let healthSyncInterval = null;
   const routesWithHealthcheck = runtimeConfig.routes.filter(r => r.healthcheck);
   if (routesWithHealthcheck.length > 0) {
     console.log('Starting health checks...');
-    healthChecker = new HealthChecker(routesWithHealthcheck, {
+    healthChecker = new HealthChecker({
       interval: 30000,
       timeout: 5000
     });
-    healthChecker.start();
+    healthChecker.updateRoutes(routesWithHealthcheck);
+    syncHealthToProxy(proxy, healthChecker, runtimeConfig, hostnames);
+    healthSyncInterval = setInterval(() => {
+      syncHealthToProxy(proxy, healthChecker, runtimeConfig, hostnames);
+    }, 500);
   }
 
   console.log('Press Ctrl+C to stop the server');
@@ -361,7 +417,10 @@ async function startCommand(args) {
   const shutdown = async () => {
     console.log('\nShutting down...');
     if (healthChecker) {
-      healthChecker.stop();
+      healthChecker.stopAll();
+    }
+    if (healthSyncInterval) {
+      clearInterval(healthSyncInterval);
     }
     await proxy.stop();
     console.log('Server stopped.');
