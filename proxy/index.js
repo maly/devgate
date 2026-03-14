@@ -1,70 +1,186 @@
 import https from 'node:https';
 import http from 'node:http';
 import httpProxy from 'http-proxy';
-import { readFileSync, watch } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { renderDashboard } from '../dashboard/index.js';
+import { createRuntimeState } from './runtime-state.js';
+import { createConfigWatcher } from './config-watcher.js';
+import { createReloadCoordinator } from './reload-coordinator.js';
 
 const EVENTS = {
   CONFIG_CHANGE: 'config-change',
-  ROUTES_CHANGE: 'routes-change'
+  ROUTES_CHANGE: 'routes-change',
+  CONFIG_RELOADED: 'config:reloaded',
+  CONFIG_RELOAD_FAILED: 'config:reload_failed'
 };
+
+function normalizeRouteTarget(route) {
+  if (!route || !route.target) {
+    return null;
+  }
+
+  if (typeof route.target === 'string') {
+    return route.target;
+  }
+
+  if (typeof route.target === 'object') {
+    const { protocol = 'http', host, port } = route.target;
+    if (host && port) {
+      return `${protocol}://${host}:${port}`;
+    }
+  }
+
+  return null;
+}
+
+function buildRoutesMapFromConfig(resolvedConfig, loadedConfig) {
+  const sourceRoutes = (resolvedConfig && Array.isArray(resolvedConfig.routes))
+    ? resolvedConfig.routes
+    : ((loadedConfig && Array.isArray(loadedConfig.routes)) ? loadedConfig.routes : []);
+
+  const map = {};
+  for (const route of sourceRoutes) {
+    const key = route.hostname || route.alias;
+    const target = normalizeRouteTarget(route);
+
+    if (!key || !target) {
+      continue;
+    }
+
+    map[key] = {
+      target,
+      changeOrigin: route.changeOrigin !== false,
+      preserveHost: route.preserveHost === true,
+      headers: route.headers || {},
+      stripPrefix: route.stripPrefix || '',
+      timeout: route.timeout || 0,
+      secure: route.secure !== false
+    };
+  }
+
+  return map;
+}
+
+function toRoutesSnapshot(routes) {
+  return Object.entries(routes).map(([alias, config]) => ({
+    alias,
+    target: config?.target || null,
+    url: config?.url || null,
+    health: config?.health || 'unknown'
+  }));
+}
 
 /**
  * @param {Object} options
- * @param {Object} options.ssl
- * @param {Object.<string, Object>} options.routes
- * @param {number} [options.port=443]
- * @param {number} [options.defaultPort=80]
  * @returns {{ start: Function, stop: Function, reload: Function, proxy: Object, isRunning: boolean }}
  */
 export function createProxy(options = {}) {
-  const { ssl = null, routes = {}, port = 443, defaultPort = 80 } = options;
+  const {
+    ssl = null,
+    routes = {},
+    port = 443,
+    defaultPort = 80,
+    configPath = null,
+    runtimeOptions = {},
+    reloadRouteBuilder = null,
+    initialRuntimeState = {}
+  } = options;
 
   const proxy = httpProxy.createProxyServer({
     ssl: ssl ? { cert: ssl.cert, key: ssl.key } : undefined,
     ws: true
   });
 
+  let activeRoutes = { ...routes };
   let httpsServer = null;
-  let httpServer = null;
+  let redirectServer = null;
   let isRunning = false;
-  let configWatcher = null;
   let eventListeners = new Map();
 
-  const handleProxyError = (err, req, res, target) => {
-    console.error(`[proxy] Error routing request to ${target}:`, err.message);
-    
-    if (!res.headersSent) {
-      res.writeHead502 = () => {
-        res.writeHead(502, { 'Content-Type': 'text/plain' });
-      };
+  const runtimeState = createRuntimeState({ configPath });
+  runtimeState.updateRuntime({
+    httpsPort: port,
+    httpRedirectPort: defaultPort,
+    ...initialRuntimeState
+  });
+  runtimeState.updateRoutes(toRoutesSnapshot(activeRoutes));
+
+  const emitEvent = (event, data) => {
+    if (!eventListeners.has(event)) {
+      return;
     }
-    
-    if (res.headersSent) {
-      res.end();
-    } else {
-      res.writeHead(502, { 'Content-Type': 'text/plain' });
-      res.end('Bad Gateway - Proxy error');
-    }
+
+    eventListeners.get(event).forEach((callback) => {
+      try {
+        callback(data);
+      } catch (err) {
+        console.error(`[proxy] Event callback error for ${event}:`, err.message);
+      }
+    });
   };
+
+  const applyResolvedConfig = (resolvedConfig, loadedConfig) => {
+    const nextRoutes = reloadRouteBuilder
+      ? reloadRouteBuilder(resolvedConfig, loadedConfig)
+      : buildRoutesMapFromConfig(resolvedConfig, loadedConfig);
+
+    activeRoutes = { ...nextRoutes };
+    runtimeState.updateRoutes(toRoutesSnapshot(activeRoutes));
+    emitEvent(EVENTS.ROUTES_CHANGE, activeRoutes);
+    return Object.keys(activeRoutes).length;
+  };
+
+  const reloadCoordinator = createReloadCoordinator({
+    configPath,
+    runtimeOptions,
+    applyResolvedConfig,
+    runtimeState,
+    emit: emitEvent
+  });
+
+  const configWatcher = createConfigWatcher({
+    configPath,
+    debounceMs: 350,
+    onChange: async () => {
+      const outcome = await reloadCoordinator.executeReload();
+      if (!outcome.ok && outcome.payload) {
+        console.error(`[proxy] Config reload failed: ${outcome.payload.errorMessage}`);
+      }
+    }
+  });
 
   const getRouteConfig = (host) => {
     if (!host) return null;
-    
+
     const hostname = host.split(':')[0].toLowerCase();
-    
-    if (routes[hostname]) {
-      return routes[hostname];
+
+    if (activeRoutes[hostname]) {
+      return activeRoutes[hostname];
     }
-    
+
     const parts = hostname.split('.');
     if (parts.length > 2) {
       const wildcardKey = `*.${parts.slice(-2).join('.')}`;
-      if (routes[wildcardKey]) {
-        return routes[wildcardKey];
+      if (activeRoutes[wildcardKey]) {
+        return activeRoutes[wildcardKey];
       }
     }
-    
+
     return null;
+  };
+
+  const handleProxyError = (err, req, res, target) => {
+    console.error(`[proxy] Error routing request to ${target}:`, err.message);
+
+    if (res && !res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' });
+      res.end('Bad Gateway - Proxy error');
+      return;
+    }
+
+    if (res) {
+      res.end();
+    }
   };
 
   const requestHandler = (req, res) => {
@@ -79,8 +195,13 @@ export function createProxy(options = {}) {
     }
 
     if (routeConfig.isDashboard) {
-      const { renderDashboard } = require('./dashboard/index.js');
-      const html = renderDashboard(routeConfig.dashboardConfig, routeConfig.dashboardHostnames);
+      const html = routeConfig.getDashboardData
+        ? renderDashboard(routeConfig.getDashboardData())
+        : renderDashboard({
+            routes: routeConfig.dashboardConfig?.routes || {},
+            health: routeConfig.dashboardHealth || {},
+            hostname: routeConfig.dashboardHostnames?.dashboard?.hostname || host
+          });
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;
@@ -95,6 +216,12 @@ export function createProxy(options = {}) {
       timeout = 0,
       secure = true
     } = routeConfig;
+
+    if (!target) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' });
+      res.end('Bad Gateway - Invalid target');
+      return;
+    }
 
     const proxyOptions = {
       target,
@@ -116,12 +243,6 @@ export function createProxy(options = {}) {
       proxyOptions.timeout = timeout;
     }
 
-    proxy.on('error', (err) => handleProxyError(err, req, res, target));
-
-    proxy.on('econnreset', (err, req, res, socket) => {
-      console.error(`[proxy] Connection reset for ${target}`);
-    });
-
     proxy.web(req, res, proxyOptions, (err) => {
       if (err) {
         handleProxyError(err, req, res, target);
@@ -129,9 +250,31 @@ export function createProxy(options = {}) {
     });
   };
 
-  let start = () => {
+  proxy.on('error', (err, req, res, target) => handleProxyError(err, req, res, target));
+
+  const onUpgrade = (req, socket, head) => {
+    const host = req.headers.host;
+    const routeConfig = getRouteConfig(host);
+
+    if (!routeConfig || !routeConfig.target) {
+      socket.destroy();
+      return;
+    }
+
+    const wsProxy = httpProxy.createProxyServer({
+      target: routeConfig.target,
+      ws: true
+    });
+
+    wsProxy.on('error', () => {
+      socket.destroy();
+    });
+
+    wsProxy.ws(req, socket, head);
+  };
+
+  const start = () => {
     if (isRunning) {
-      console.log('[proxy] Server already running');
       return Promise.resolve();
     }
 
@@ -140,58 +283,45 @@ export function createProxy(options = {}) {
         if (ssl && ssl.key && ssl.cert) {
           let key = ssl.key;
           let cert = ssl.cert;
-          
+
           if (typeof key === 'string' && !key.includes('-----BEGIN')) {
             key = readFileSync(key);
           }
-          
+
           if (typeof cert === 'string' && !cert.includes('-----BEGIN')) {
             cert = readFileSync(cert);
           }
-          
-          const httpsOptions = { key, cert };
-          
-          httpsServer = https.createServer(httpsOptions, requestHandler);
-          
-          httpsServer.on('error', (err) => {
-            console.error('[proxy] HTTPS server error:', err.message);
-            reject(err);
-          });
 
-          httpsServer.listen(port, () => {
-            console.log(`[proxy] HTTPS proxy server listening on port ${port}`);
-            isRunning = true;
-            resolve();
-          });
+          httpsServer = https.createServer({ key, cert }, requestHandler);
         } else {
-          httpServer = http.createServer(requestHandler);
-          
-          httpServer.on('error', (err) => {
-            console.error('[proxy] HTTP server error:', err.message);
-            reject(err);
-          });
-
-          httpServer.listen(port, () => {
-            console.log(`[proxy] HTTP proxy server listening on port ${port}`);
-            isRunning = true;
-            resolve();
-          });
+          httpsServer = http.createServer(requestHandler);
         }
 
+        httpsServer.on('upgrade', onUpgrade);
+        httpsServer.on('error', reject);
+
+        httpsServer.listen(port, () => {
+          isRunning = true;
+          runtimeState.updateRuntime({ isRunning: true });
+
+          if (configPath) {
+            configWatcher.start();
+          }
+
+          resolve();
+        });
+
         if (defaultPort && defaultPort !== port) {
-          const redirectHandler = (req, res) => {
+          redirectServer = http.createServer((req, res) => {
             const host = req.headers.host;
             const redirectPort = ssl ? port : defaultPort;
             res.writeHead(301, {
-              'Location': `https://${host}:${redirectPort}${req.url}`
+              Location: `https://${host}:${redirectPort}${req.url}`
             });
             res.end();
-          };
-
-          httpServer = http.createServer(redirectHandler);
-          httpServer.listen(defaultPort, () => {
-            console.log(`[proxy] HTTP redirect server listening on port ${defaultPort}`);
           });
+
+          redirectServer.listen(defaultPort);
         }
       } catch (err) {
         reject(err);
@@ -200,26 +330,27 @@ export function createProxy(options = {}) {
   };
 
   const stop = () => {
-    unwatchConfig();
+    configWatcher.stop();
 
     return new Promise((resolve) => {
-      const serversToStop = [httpsServer, httpServer].filter(Boolean);
-      
-      if (serversToStop.length === 0) {
+      const servers = [httpsServer, redirectServer].filter(Boolean);
+
+      if (servers.length === 0) {
         isRunning = false;
+        runtimeState.updateRuntime({ isRunning: false });
         resolve();
         return;
       }
 
       let closed = 0;
-      serversToStop.forEach((server) => {
+      servers.forEach((server) => {
         server.close(() => {
           closed++;
-          if (closed === serversToStop.length) {
-            console.log('[proxy] Proxy servers stopped');
+          if (closed === servers.length) {
             isRunning = false;
+            runtimeState.updateRuntime({ isRunning: false });
             httpsServer = null;
-            httpServer = null;
+            redirectServer = null;
             resolve();
           }
         });
@@ -228,96 +359,23 @@ export function createProxy(options = {}) {
   };
 
   const reload = (newRoutes) => {
-    if (newRoutes) {
-      Object.assign(routes, newRoutes);
-      console.log('[proxy] Routes reloaded');
-      emitEvent(EVENTS.ROUTES_CHANGE, routes);
+    if (!newRoutes || typeof newRoutes !== 'object') {
+      return;
     }
+
+    activeRoutes = { ...activeRoutes, ...newRoutes };
+    runtimeState.updateRoutes(toRoutesSnapshot(activeRoutes));
+    emitEvent(EVENTS.ROUTES_CHANGE, activeRoutes);
   };
 
   const reloadConfig = (newConfig) => {
-    if (!newConfig || typeof newConfig !== 'object') {
-      console.log('[proxy] Invalid config provided to reload');
-      return;
+    const loadedConfig = { routes: [] };
+    if (Array.isArray(newConfig?.routes)) {
+      loadedConfig.routes = newConfig.routes;
     }
 
-    let routesChanged = false;
-
-    if (newConfig.routes) {
-      const oldRouteKeys = new Set(Object.keys(routes));
-      const newRouteKeys = new Set(newConfig.routes.map(r => r.alias));
-
-      Object.keys(routes).forEach(key => {
-        if (!newRouteKeys.has(key)) {
-          delete routes[key];
-          routesChanged = true;
-        }
-      });
-
-      newConfig.routes.forEach(route => {
-        const routeKey = route.alias;
-        if (!routes[routeKey] || JSON.stringify(routes[routeKey]) !== JSON.stringify(route)) {
-          routes[routeKey] = route;
-          routesChanged = true;
-        }
-      });
-
-      if (routesChanged) {
-        console.log('[proxy] Routes updated via config reload');
-        emitEvent(EVENTS.ROUTES_CHANGE, routes);
-      }
-    }
-
+    applyResolvedConfig(newConfig || {}, loadedConfig);
     emitEvent(EVENTS.CONFIG_CHANGE, newConfig);
-  };
-
-  let configWatchDebounceTimer = null;
-  let lastConfigMtime = null;
-
-  const watchConfig = (configPath, onConfigChange) => {
-    if (configWatcher) {
-      configWatcher.close();
-    }
-
-    if (!configPath) {
-      return;
-    }
-
-    try {
-      const stats = readFileSync(configPath, 'utf-8');
-      lastConfigMtime = stats ? Date.now() : null;
-    } catch (err) {
-      console.log(`[proxy] Cannot read initial config for watching: ${err.message}`);
-    }
-
-    let debounceTimeout = null;
-
-    configWatcher = watch(configPath, (eventType) => {
-      if (eventType !== 'change') {
-        return;
-      }
-
-      if (debounceTimeout) {
-        clearTimeout(debounceTimeout);
-      }
-
-      debounceTimeout = setTimeout(() => {
-        console.log('[proxy] Config file changed, triggering reload...');
-        if (onConfigChange) {
-          onConfigChange(configPath);
-        }
-      }, 500);
-    });
-
-    console.log(`[proxy] Watching config file: ${configPath}`);
-  };
-
-  const unwatchConfig = () => {
-    if (configWatcher) {
-      configWatcher.close();
-      configWatcher = null;
-      console.log('[proxy] Stopped watching config file');
-    }
   };
 
   const on = (event, callback) => {
@@ -333,82 +391,20 @@ export function createProxy(options = {}) {
     }
   };
 
-  const emitEvent = (event, data) => {
-    if (eventListeners.has(event)) {
-      eventListeners.get(event).forEach(callback => {
-        try {
-          callback(data);
-        } catch (err) {
-          console.error(`[proxy] Event callback error for ${event}:`, err.message);
-        }
-      });
-    }
-  };
-
-  const onUpgrade = (req, socket, head) => {
-    const host = req.headers.host;
-    const routeConfig = getRouteConfig(host);
-
-    if (!routeConfig || !routeConfig.target) {
-      console.log(`[proxy] WebSocket upgrade denied - no route for host: ${host}`);
-      socket.destroy();
-      return;
-    }
-
-    const target = routeConfig.target;
-    const wsProtocol = target.startsWith('https') ? 'wss' : 'ws';
-    
-    console.log(`[proxy] WebSocket upgrade: ${host} -> ${wsProtocol}://${target.replace(/^https?:\/\//, '')}`);
-
-    // Log WebSocket headers for debugging
-    const wsKey = req.headers['sec-websocket-key'];
-    const wsVersion = req.headers['sec-websocket-version'];
-    const wsProtocolHeader = req.headers['sec-websocket-protocol'];
-    console.log(`[proxy] WebSocket headers: version=${wsVersion}, protocol=${wsProtocolHeader || 'none'}`);
-    
-    const wsProxy = httpProxy.createProxyServer({
-      target,
-      ws: true
-    });
-
-    wsProxy.on('error', (err) => {
-      console.error(`[proxy] WebSocket proxy error for ${target}:`, err.message);
-      socket.destroy();
-    });
-
-    // Handle WebSocket disconnect gracefully
-    socket.on('close', () => {
-      console.log(`[proxy] WebSocket disconnected: ${host}`);
-    });
-
-    socket.on('error', (err) => {
-      console.error(`[proxy] WebSocket socket error for ${host}:`, err.message);
-    });
-
-    wsProxy.ws(req, socket, head);
-  };
-
-  const originalStart = start;
-  start = () => {
-    return originalStart().then(() => {
-      if (httpsServer) {
-        httpsServer.on('upgrade', onUpgrade);
-      }
-      if (httpServer) {
-        httpServer.on('upgrade', onUpgrade);
-      }
-    });
-  };
-
   return {
     start,
     stop,
     reload,
     reloadConfig,
-    watchConfig,
-    unwatchConfig,
+    watchConfig: () => configWatcher.start(),
+    unwatchConfig: () => configWatcher.stop(),
     on,
     off,
+    setRuntimeState: (partial) => runtimeState.updateRuntime(partial),
+    setHealthState: (partial) => runtimeState.updateHealth(partial),
+    setCertState: (partial) => runtimeState.updateCert(partial),
+    setRoutesState: (routesSnapshot) => runtimeState.updateRoutes(routesSnapshot),
+    getRuntimeState: () => runtimeState.getSnapshot(),
     get proxy() {
       return proxy;
     },
