@@ -50,7 +50,9 @@ Responsibilities:
 This avoids tight coupling of dashboard with core proxy internals.
 
 State schema (beta contract):
-- `runtime`:`r`n  - `ready` (boolean, false until first complete snapshot is available)`r`n  - `isRunning` (boolean)
+- `runtime`:
+  - `ready` (boolean, false until first complete snapshot is available)
+  - `isRunning` (boolean)
   - `httpsPort` (number)
   - `httpRedirectPort` (number)
   - `ip` (string)
