@@ -1,174 +1,137 @@
-/**
- * Render the dashboard HTML page
- * @param {Object} options
- * @param {Object.<string, Object>} [options.routes={}] - Map of route aliases to route configs
- * @param {Object.<string, Object>} [options.health={}] - Map of route aliases to health status
- * @param {string} [options.hostname='localhost'] - Dashboard hostname
- * @returns {string} HTML string
- */
-export function renderDashboard(options = {}) {
-  const { routes = {}, health = {}, hostname = 'localhost' } = options;
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-  const routeEntries = Object.entries(routes);
-  
-  const escapeHtml = (str) => {
-    if (typeof str !== 'string') return '';
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  };
+function renderRuntimeDashboard(runtimeState) {
+  const runtime = runtimeState.runtime || {};
+  const reload = runtimeState.reload || {};
+  const cert = runtimeState.cert || {};
+  const routes = Array.isArray(runtimeState.routes) ? runtimeState.routes : [];
+  const health = runtimeState.health || {};
 
-  const getHealthStatus = (alias) => {
-    const status = health[alias];
-    if (!status) {
-      return { label: 'Unknown', class: 'unknown' };
-    }
-    if (status.healthy === true || status.status === 'healthy') {
-      return { label: 'Healthy', class: 'healthy' };
-    }
-    if (status.healthy === false || status.status === 'unhealthy') {
-      return { label: 'Unhealthy', class: 'unhealthy' };
-    }
-    return { label: 'Unknown', class: 'unknown' };
-  };
+  const routeRows = routes.length === 0
+    ? '<tr><td colspan="4">No routes configured</td></tr>'
+    : routes.map((route) => `
+      <tr>
+        <td>${escapeHtml(route.alias)}</td>
+        <td>${escapeHtml(route.target)}</td>
+        <td>${escapeHtml(route.url || '-')}</td>
+        <td>${escapeHtml(route.health || 'unknown')}</td>
+      </tr>
+    `).join('');
 
-  let routesHtml = '';
-  
-  if (routeEntries.length === 0) {
-    routesHtml = '<p class="no-routes">No routes configured</p>';
-  } else {
-    routesHtml = '<table class="routes-table"><thead><tr><th>Alias</th><th>Upstream</th><th>Status</th></tr></thead><tbody>';
-    
-    for (const [alias, config] of routeEntries) {
-      const upstream = config.target || config.upstream || '-';
-      const healthStatus = getHealthStatus(alias);
-      
-      routesHtml += `<tr>
-        <td class="alias">${escapeHtml(alias)}</td>
-        <td class="upstream">${escapeHtml(upstream)}</td>
-        <td><span class="status ${healthStatus.class}">${healthStatus.label}</span></td>
-      </tr>`;
-    }
-    
-    routesHtml += '</tbody></table>';
-  }
-
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DevGate Dashboard</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f5f5f5;
-      color: #333;
-      line-height: 1.6;
-      padding: 20px;
-    }
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-    }
-    h1 {
-      font-size: 1.5rem;
-      margin-bottom: 10px;
-      color: #222;
-    }
-    .hostname {
-      font-size: 0.9rem;
-      color: #666;
-      margin-bottom: 30px;
-    }
-    .section {
-      background: #fff;
-      border-radius: 8px;
-      padding: 20px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .section h2 {
-      font-size: 1.1rem;
-      margin-bottom: 15px;
-      color: #444;
-    }
-    .routes-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    .routes-table th,
-    .routes-table td {
-      text-align: left;
-      padding: 12px;
-      border-bottom: 1px solid #eee;
-    }
-    .routes-table th {
-      font-weight: 600;
-      color: #555;
-      font-size: 0.85rem;
-      text-transform: uppercase;
-    }
-    .routes-table td.alias {
-      font-weight: 500;
-      color: #2563eb;
-    }
-    .routes-table td.upstream {
-      font-family: monospace;
-      font-size: 0.9rem;
-      color: #666;
-    }
-    .status {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 0.8rem;
-      font-weight: 500;
-    }
-    .status.healthy {
-      background: #dcfce7;
-      color: #166534;
-    }
-    .status.unhealthy {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-    .status.unknown {
-      background: #f3f4f6;
-      color: #6b7280;
-    }
-    .no-routes {
-      color: #666;
-      font-style: italic;
-    }
-    .footer {
-      margin-top: 20px;
-      text-align: center;
-      font-size: 0.8rem;
-      color: #999;
-    }
+    body { font-family: sans-serif; background: #f8fafc; color: #1f2937; margin: 0; padding: 24px; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .card { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    h1 { margin: 0 0 14px; }
+    h2 { margin: 0 0 10px; font-size: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+    .label { color: #6b7280; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e5e7eb; }
+    th { color: #6b7280; font-size: 12px; text-transform: uppercase; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>DevGate Dashboard</h1>
-    <p class="hostname">Hostname: ${escapeHtml(hostname)}</p>
-    
-    <div class="section">
-      <h2>Registered Routes</h2>
-      ${routesHtml}
+
+    <div class="card">
+      <h2>Runtime</h2>
+      <div class="grid">
+        <div class="label">Ready</div><div>${escapeHtml(runtime.ready)}</div>
+        <div class="label">Running</div><div>${escapeHtml(runtime.isRunning)}</div>
+        <div class="label">HTTPS port</div><div>${escapeHtml(runtime.httpsPort)}</div>
+        <div class="label">HTTP redirect port</div><div>${escapeHtml(runtime.httpRedirectPort)}</div>
+        <div class="label">IP</div><div>${escapeHtml(runtime.ip)}</div>
+        <div class="label">Hostname strategy</div><div>${escapeHtml(runtime.hostnameStrategy)}</div>
+      </div>
     </div>
-    
-    <div class="footer">
-      DevGate Proxy
+
+    <div class="card">
+      <h2>Last reload</h2>
+      <div class="grid">
+        <div class="label">Status</div><div>${escapeHtml(reload.lastReloadStatus)}</div>
+        <div class="label">At</div><div>${escapeHtml(reload.lastReloadAt)}</div>
+        <div class="label">Error</div><div>${escapeHtml(reload.lastReloadError)}</div>
+        <div class="label">Config version</div><div>${escapeHtml(reload.activeConfigVersion)}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Certificate</h2>
+      <div class="grid">
+        <div class="label">Mode</div><div>${escapeHtml(cert.mode)}</div>
+        <div class="label">Cert path</div><div>${escapeHtml(cert.certPath)}</div>
+        <div class="label">Key path</div><div>${escapeHtml(cert.keyPath)}</div>
+        <div class="label">Expires</div><div>${escapeHtml(cert.expiresAt)}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Health</h2>
+      <div class="grid">
+        <div class="label">Summary</div><div>${escapeHtml(health.summary)}</div>
+        <div class="label">Updated</div><div>${escapeHtml(health.updatedAt)}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Routes</h2>
+      <table>
+        <thead><tr><th>Alias</th><th>Upstream</th><th>URL</th><th>Status</th></tr></thead>
+        <tbody>${routeRows}</tbody>
+      </table>
     </div>
   </div>
 </body>
 </html>`;
+}
 
-  return html;
+function renderLegacyDashboard({ routes = {}, health = {}, hostname = 'localhost' } = {}) {
+  const routeEntries = Object.entries(routes);
+  const rows = routeEntries.length === 0
+    ? '<tr><td colspan="3">No routes configured</td></tr>'
+    : routeEntries.map(([alias, config]) => {
+        const upstream = config.target || config.upstream || '-';
+        const status = health[alias]?.status || health[alias]?.healthy === true
+          ? 'Healthy'
+          : health[alias]?.healthy === false
+            ? 'Unhealthy'
+            : 'Unknown';
+        return `<tr><td>${escapeHtml(alias)}</td><td>${escapeHtml(upstream)}</td><td>${escapeHtml(status)}</td></tr>`;
+      }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>DevGate Dashboard</title></head>
+<body>
+  <h1>DevGate Dashboard</h1>
+  <p>Hostname: ${escapeHtml(hostname)}</p>
+  <table>
+    <thead><tr><th>Alias</th><th>Upstream</th><th>Status</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body>
+</html>`;
+}
+
+export function renderDashboard(options = {}) {
+  if (options.runtimeState) {
+    return renderRuntimeDashboard(options.runtimeState);
+  }
+  return renderLegacyDashboard(options);
 }
 
 export default { renderDashboard };
