@@ -215,8 +215,42 @@ export function resolveRuntimeConfig(config, options = {}) {
   return runtimeConfig;
 }
 
+export async function loadValidateResolveConfig(configPath, runtimeOptions = {}) {
+  try {
+    const loaded = await loadConfig(configPath);
+    const validation = validateConfig(loaded);
+
+    if (!validation.valid) {
+      return {
+        ok: false,
+        error: {
+          code: 'validation_error',
+          message: validation.errors.join('; ')
+        }
+      };
+    }
+
+    return {
+      ok: true,
+      loaded,
+      resolved: resolveRuntimeConfig(loaded, runtimeOptions)
+    };
+  } catch (err) {
+    const message = err?.message || String(err);
+    const isParseError = message.includes('Failed to parse config file');
+
+    return {
+      ok: false,
+      error: {
+        code: isParseError ? 'parse_error' : 'read_error',
+        message
+      }
+    };
+  }
+}
+
 export function getDefaultConfig() {
   return { ...DEFAULT_CONFIG };
 }
 
-export default { loadConfig, validateConfig, resolveRuntimeConfig, getDefaultConfig };
+export default { loadConfig, validateConfig, resolveRuntimeConfig, loadValidateResolveConfig, getDefaultConfig };

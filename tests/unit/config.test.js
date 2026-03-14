@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { validateConfig, loadConfig, resolveRuntimeConfig, getDefaultConfig } from '../../config/index.js';
+import { validateConfig, loadConfig, resolveRuntimeConfig, getDefaultConfig, loadValidateResolveConfig } from '../../config/index.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -345,6 +345,58 @@ describe('validateConfig', () => {
       };
       const result = resolveRuntimeConfig(config, options);
       expect(result.routes[0].target.port).toBe(4000);
+    });
+  });
+
+  describe('loadValidateResolveConfig', () => {
+    const reloadTestDir = path.join(os.tmpdir(), 'devgate-reload-test-' + Date.now());
+
+    beforeEach(() => {
+      fs.mkdirSync(reloadTestDir, { recursive: true });
+    });
+
+    it('returns ok=true with resolved config for valid input', async () => {
+      const configPath = path.join(reloadTestDir, 'reload-valid.json');
+      fs.writeFileSync(configPath, JSON.stringify({
+        routes: [{ alias: 'app', target: { protocol: 'http', host: 'localhost', port: 3000 } }]
+      }));
+
+      const result = await loadValidateResolveConfig(configPath, {});
+
+      expect(result.ok).toBe(true);
+      expect(result.loaded.routes).toHaveLength(1);
+      expect(result.resolved.routes).toHaveLength(1);
+    });
+
+    it('returns ok=false and validation_error for invalid config', async () => {
+      const configPath = path.join(reloadTestDir, 'reload-invalid.json');
+      fs.writeFileSync(configPath, JSON.stringify({
+        routes: [{ alias: '', target: { protocol: 'http', host: 'localhost', port: 3000 } }]
+      }));
+
+      const result = await loadValidateResolveConfig(configPath, {});
+
+      expect(result.ok).toBe(false);
+      expect(result.error.code).toBe('validation_error');
+    });
+
+    it('returns parse_error for invalid JSON syntax', async () => {
+      const configPath = path.join(reloadTestDir, 'reload-parse-invalid.json');
+      fs.writeFileSync(configPath, '{ bad json');
+
+      const result = await loadValidateResolveConfig(configPath, {});
+
+      expect(result.ok).toBe(false);
+      expect(result.error.code).toBe('parse_error');
+    });
+
+    it('returns read_error when config path does not exist', async () => {
+      const configPath = path.join(reloadTestDir, 'does-not-exist.json');
+
+      const result = await loadValidateResolveConfig(configPath, {});
+
+      expect(result.ok).toBe(false);
+      expect(result.error.code).toBe('read_error');
     });
   });
 
