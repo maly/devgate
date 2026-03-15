@@ -1,6 +1,6 @@
 {
   "name": "devgate",
-  "version": "1.1.0",
+  "version": "1.1.1-beta.0",
   "description": "Local HTTPS reverse proxy tool for development with sslip.io hostname resolution",
   "main": "./api/index.js",
   "type": "module",
