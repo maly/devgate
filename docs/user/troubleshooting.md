@@ -67,6 +67,36 @@ Then verify:
 devgate setup --dry-run
 ```
 
+## Init Command Issues
+
+### `devgate init --non-interactive` returns `init_invalid_args`
+
+Check action matrix:
+- exactly one action: `--add-alias` XOR `--edit-alias` XOR `--remove-alias`
+- add requires `--protocol --host --port`
+- edit requires at least one of `--protocol|--host|--port`
+- remove must not include edit fields
+
+### `devgate init --dry-run` returned success but no file changed
+
+This is expected. Preview mode does not write files.
+
+Successful preview contract:
+- `status=preview`
+- `code=init_preview`
+- exit code `0`
+
+### Existing config cannot be parsed during `devgate init`
+
+Use recovery flags:
+
+```bash
+devgate init --choose-clean-template --confirm-recovery
+```
+
+Before first overwrite, devgate can create backup:
+- `<config>.bak.<timestamp>`
+
 ## Port Binding Issues
 
 ### EACCES: permission denied for port 443

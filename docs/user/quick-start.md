@@ -2,40 +2,31 @@
 
 This guide will get you up and running with devgate in 5 minutes.
 
-## Step 1: Create a Configuration File
+## Step 1: Initialize Routes
 
-Create a file named `devgate.json` in your project root:
+Run:
 
-```json
-{
-  "routes": [
-    {
-      "alias": "api",
-      "target": {
-        "protocol": "http",
-        "host": "localhost",
-        "port": 3000
-      }
-    },
-    {
-      "alias": "web",
-      "target": {
-        "protocol": "http",
-        "host": "localhost",
-        "port": 5173
-      }
-    },
-    {
-      "alias": "admin",
-      "target": {
-        "protocol": "http",
-        "host": "localhost",
-        "port": 8080
-      }
-    }
-  ]
-}
+```bash
+devgate init
 ```
+
+This opens a guided flow to add/edit/remove aliases and writes `devgate.json`.
+
+Non-interactive examples:
+
+```bash
+devgate init --non-interactive --add-alias api --protocol http --host localhost --port 3000
+devgate init --non-interactive --edit-alias api --port 3001
+devgate init --non-interactive --remove-alias api
+```
+
+Preview-only:
+
+```bash
+devgate init --dry-run --json
+```
+
+On successful preview, the result is `status=preview`, `code=init_preview`, exit code `0`.
 
 ## Step 2: Prepare Your Environment
 

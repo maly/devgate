@@ -11,6 +11,7 @@ Complete reference for all devgate CLI commands.
 | `print-config` | Print effective configuration |
 | `print-hosts` | Print generated hostnames |
 | `doctor` | Run diagnostics |
+| `init` | Configure routes (wizard/non-interactive) |
 | `domain` | Manage `.devgate` resolver setup |
 | `setup` | Prepare local environment for first use |
 
@@ -258,6 +259,60 @@ devgate setup --json --verbose
 - `exit_code`:
   - non-dry-run -> based on `start_ready`
   - dry-run -> based on `projected_start_ready`
+
+## init
+
+Configure routes interactively, or in non-interactive mode for scripts/CI.
+
+```bash
+devgate init [options]
+```
+
+### Options
+
+| Option | Alias | Description | Default |
+|---|---|---|---|
+| `--config <path>` | `-c` | Path to config file | `devgate.json` |
+| `--dry-run` |  | Preview without writing files | false |
+| `--json` |  | Print JSON output only | false |
+| `--non-interactive` |  | Disable prompts; requires one action | false |
+| `--add-alias <alias>` |  | Add action alias |  |
+| `--edit-alias <alias>` |  | Edit action alias |  |
+| `--remove-alias <alias>` |  | Remove action alias |  |
+| `--protocol <http|https>` |  | Protocol for add/edit |  |
+| `--host <host>` |  | Host for add/edit |  |
+| `--port <port>` |  | Port for add/edit |  |
+| `--choose-clean-template` |  | Use clean template after parse failure | false |
+| `--confirm-recovery` | `--yes` | Confirm parse-failure recovery overwrite | false |
+
+### Non-Interactive Rules
+
+- Exactly one action is required: `--add-alias` XOR `--edit-alias` XOR `--remove-alias`.
+- Add requires `--protocol`, `--host`, `--port`.
+- Edit requires at least one of `--protocol|--host|--port`.
+- Remove does not accept edit fields.
+- Edit scope is intentionally limited to `protocol|host|port` in this phase.
+
+### Examples
+
+```bash
+devgate init
+devgate init --dry-run --json
+devgate init --non-interactive --add-alias api --protocol http --host localhost --port 3000
+devgate init --non-interactive --edit-alias api --port 3001
+devgate init --non-interactive --remove-alias api
+```
+
+### Output Contract Highlights
+
+- `status/code` mapping:
+  - `saved` -> `init_saved`
+  - `cancelled` -> `init_cancelled`
+  - `preview` -> `init_preview`
+  - `error` -> `init_error|init_invalid_args`
+- `--dry-run` success returns `status=preview`, exit code `0`.
+- Parse-failure recovery can create backup file before first overwrite:
+  - `<config>.bak.<timestamp>`
 
 ## domain
 
