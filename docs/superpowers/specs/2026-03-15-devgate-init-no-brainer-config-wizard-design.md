@@ -55,6 +55,7 @@ Non-interactive validation rules:
 - `--add-alias` requires protocol/host/port.
 - `--edit-alias` requires at least one editable field.
 - Invalid combinations return exit `1` and status/code `error/init_invalid_args`.
+- Non-interactive edit scope in this phase is limited to `protocol|host|port`.
 
 ## 2.2 Interaction Model
 Wizard flow:
@@ -75,10 +76,15 @@ Wizard flow:
 - `0`:
   - successful save
   - or cancel/no-op without error
+  - or `status=preview` (`--dry-run`) when command completes successfully
 - `1`:
-  - validation failure that blocks requested action
   - parse/read/write error
   - invalid use of `--non-interactive` arguments
+  - command-terminating validation failure
+
+Interactive validation behavior:
+- Per-action validation errors in interactive mode do not terminate the wizard.
+- Exit `1` is reserved for command-terminating failures (parse/read/write/final save/invalid CLI args).
 
 ## 2.4 Output Modes
 - default: concise human-readable wizard output
@@ -91,6 +97,7 @@ Flag behavior rules:
 - `--non-interactive` disables prompts and requires valid action flags.
 - `--json --non-interactive` is valid and returns JSON-only result.
 - `--dry-run` can be combined with both interactive and non-interactive flows.
+- In interactive mode with `--json`, prompts are shown only via TTY interaction, while stdout remains JSON-only.
 
 ## 3. Architecture
 
@@ -136,11 +143,17 @@ Required fields:
 Result rules:
 - `schema_version` is string `"1"` for this phase.
 - `savedPath` may be `null` for `status=cancelled|error`.
+- For `status=preview`, `savedPath` is always resolved target config path (never `null`).
 - Status/code mappings:
   - `saved` -> `init_saved`
   - `cancelled` -> `init_cancelled`
   - `preview` -> `init_preview`
   - `error` -> `init_error|init_invalid_args`
+- Counter semantics are deterministic:
+  - `added`: newly created aliases in session
+  - `updated`: existing aliases modified
+  - `removed`: aliases removed
+  - add+remove same alias in one session yields `added=0`, `removed=0`, `changed=false` unless other net changes remain
 
 ## 3.3 Atomic Save Contract
 - Save path uses temp file + rename in same directory.
@@ -173,6 +186,7 @@ Merge/preservation rules:
 - Unknown route-level keys on untouched routes must be preserved.
 - For edited routes, only explicitly changed fields are replaced.
 - Route order remains stable unless user explicitly removes/adds routes.
+- Route listing output and JSON route collections must preserve deterministic insertion order.
 
 ## 4.3 Remove
 - Requires explicit confirmation.
