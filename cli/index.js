@@ -7,9 +7,12 @@ import { renderDashboard } from '../dashboard/index.js';
 import { HealthChecker } from '../health/index.js';
 import { getDomainStatus, setupDomainResolver, teardownDomainResolver } from '../domain/index.js';
 import { resolveDomainStrategy } from '../domain/strategy-resolver.js';
+import { runSetup } from '../setup/index.js';
+import { renderSetupSummary } from '../setup/summary.js';
 import os from 'os';
 import { existsSync } from 'fs';
 import { createServer } from 'net';
+import { execSync } from 'child_process';
 
 const DEFAULT_CONFIG_PATH = './devgate.json';
 
@@ -50,6 +53,8 @@ function parseArgs(args) {
     httpPort: null,
     certDir: null,
     verbose: false,
+    json: false,
+    dryRun: false,
     dashboardEnabled: true,
     selfSignedFallback: false,
     domainMode: null
@@ -127,6 +132,18 @@ function parseArgs(args) {
 
     if (arg === '--verbose' || arg === '-v') {
       options.verbose = true;
+      i++;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
+      i++;
+      continue;
+    }
+
+    if (arg === '--dry-run') {
+      options.dryRun = true;
       i++;
       continue;
     }
@@ -227,6 +244,15 @@ function printCommandHelp(command) {
     --verbose, -v            Show verbose output
     --help, -h              Show this help`,
 
+    setup: `devgate setup [options]
+  Prepare local environment for no-brainer onboarding
+
+  Options:
+    --verbose, -v            Show detailed setup logs
+    --dry-run                Show planned actions without mutations
+    --json                   Print machine-readable JSON result only
+    --help, -h               Show this help`,
+
     domain: `devgate domain <status|setup|teardown>
   Manage native .devgate resolver integration (macOS/Linux)
 
@@ -270,6 +296,7 @@ function printCommandHelp(command) {
     doctor           Run diagnostics
     install-mkcert  Install mkcert automatically
     domain           Manage .devgate resolver setup
+    setup           Prepare local environment for first use
 
   Options:
     --help, -h         Show help for a command
@@ -832,6 +859,33 @@ async function installMkcertCommand(args) {
   return { exitCode: result.success ? 0 : 1 };
 }
 
+async function setupCommand(args) {
+  const options = parseArgs(args);
+
+  if (options.help) {
+    printCommandHelp('setup');
+    return { exitCode: 0 };
+  }
+
+  const result = await runSetup({
+    dryRun: options.dryRun,
+    verbose: options.verbose,
+    json: options.json
+  });
+
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(renderSetupSummary(result));
+  }
+
+  return {
+    exitCode: result.exit_code,
+    start_ready: result.start_ready,
+    projected_start_ready: result.projected_start_ready
+  };
+}
+
 async function domainCommand(args) {
   const subcommand = args[0];
   if (!subcommand || subcommand === '--help' || subcommand === '-h') {
@@ -899,6 +953,7 @@ async function run(args = process.argv.slice(2)) {
     'print-config': printConfigCommand,
     'print-hosts': printHostsCommand,
     'doctor': doctorCommand,
+    'setup': setupCommand,
     'install-mkcert': installMkcertCommand,
     'domain': domainCommand
   };

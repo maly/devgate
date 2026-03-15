@@ -54,6 +54,21 @@ vi.mock('../../domain/index.js', () => ({
   teardownDomainResolver: teardownDomainResolverMock
 }));
 
+const runSetupMock = vi.fn(async (options = {}) => ({
+  schema_version: '1',
+  command: 'setup',
+  start_ready: !options.dryRun,
+  projected_start_ready: true,
+  exit_code: 0,
+  code: options.dryRun ? 'setup_projected_ready' : 'setup_ready',
+  summary: { ok: 5, warn: 0, fail: 0, not_applicable: 0 },
+  steps: []
+}));
+
+vi.mock('../../setup/index.js', () => ({
+  runSetup: runSetupMock
+}));
+
 const { default: cli } = await import('../../cli/index.js');
 
 function setPlatform(value) {
@@ -234,5 +249,104 @@ describe('domain CLI integration', () => {
     expect(logs.join('\n')).toContain('Code: resolver_missing');
     expect(logs.join('\n')).toContain('Effective strategy: sslip');
     expect(logs.join('\n')).toContain('Fallback active: yes');
+  });
+
+  it('setup runs and maps exit by start_ready in non-dry-run mode', async () => {
+    runSetupMock.mockResolvedValueOnce({
+      schema_version: '1',
+      command: 'setup',
+      start_ready: false,
+      projected_start_ready: true,
+      exit_code: 1,
+      code: 'setup_not_ready',
+      summary: { ok: 2, warn: 1, fail: 1, not_applicable: 1 },
+      steps: []
+    });
+
+    const result = await cli.run(['setup']);
+
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('setup --json prints top-level schema contract', async () => {
+    const result = await cli.run(['setup', '--json']);
+    const output = logs.join('\n');
+    const parsed = JSON.parse(output);
+
+    expect(result.exitCode).toBe(0);
+    expect(parsed.schema_version).toBe('1');
+    expect(parsed.command).toBe('setup');
+    expect(typeof parsed.start_ready).toBe('boolean');
+    expect(typeof parsed.projected_start_ready).toBe('boolean');
+    expect([0, 1]).toContain(parsed.exit_code);
+    expect(typeof parsed.code).toBe('string');
+    expect(parsed.summary).toBeTruthy();
+    expect(parsed.steps).toBeInstanceOf(Array);
+  });
+
+  it('setup --dry-run uses projected_start_ready for exit code', async () => {
+    runSetupMock.mockResolvedValueOnce({
+      schema_version: '1',
+      command: 'setup',
+      start_ready: false,
+      projected_start_ready: true,
+      exit_code: 0,
+      code: 'setup_projected_ready',
+      summary: { ok: 5, warn: 0, fail: 0, not_applicable: 0 },
+      steps: []
+    });
+
+    const result = await cli.run(['setup', '--dry-run', '--json']);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('setup --json --verbose emits json only', async () => {
+    runSetupMock.mockResolvedValueOnce({
+      schema_version: '1',
+      command: 'setup',
+      start_ready: true,
+      projected_start_ready: true,
+      exit_code: 0,
+      code: 'setup_ready',
+      summary: { ok: 5, warn: 0, fail: 0, not_applicable: 0 },
+      steps: [],
+      details: { logs: ['a', 'b'] }
+    });
+    await cli.run(['setup', '--json', '--verbose']);
+    const output = logs.join('\n');
+    expect(() => JSON.parse(output)).not.toThrow();
+    expect(output).not.toContain('Running setup');
+  });
+
+  it('setup --dry-run --verbose renders detailed human logs', async () => {
+    runSetupMock.mockResolvedValueOnce({
+      schema_version: '1',
+      command: 'setup',
+      start_ready: false,
+      projected_start_ready: true,
+      exit_code: 0,
+      code: 'setup_projected_ready',
+      summary: { ok: 3, warn: 1, fail: 0, not_applicable: 1 },
+      steps: [{ step_id: 'mkcert', status: 'warn', code: 'mkcert_install_failed', message: 'dry-run hint', remediation: [], details: {}, duration_ms: 0 }]
+    });
+    await cli.run(['setup', '--dry-run', '--verbose']);
+    expect(logs.join('\n')).toContain('Running setup');
+  });
+
+  it('setup --dry-run --json --verbose emits JSON only with details.logs', async () => {
+    runSetupMock.mockResolvedValueOnce({
+      schema_version: '1',
+      command: 'setup',
+      start_ready: false,
+      projected_start_ready: true,
+      exit_code: 0,
+      code: 'setup_projected_ready',
+      summary: { ok: 3, warn: 1, fail: 0, not_applicable: 1 },
+      steps: [],
+      details: { logs: ['l1'] }
+    });
+    await cli.run(['setup', '--dry-run', '--json', '--verbose']);
+    const parsed = JSON.parse(logs.join('\n'));
+    expect(parsed.details.logs).toBeTruthy();
   });
 });
