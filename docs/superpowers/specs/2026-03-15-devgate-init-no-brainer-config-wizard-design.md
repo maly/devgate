@@ -42,19 +42,34 @@ Make configuration seamless by introducing `devgate init` as a single interactiv
 - `devgate init --json`
 - `devgate init --non-interactive`
 
+Non-interactive action syntax:
+- Add route:
+  - `devgate init --non-interactive --add-alias <alias> --protocol <http|https> --host <host> --port <1-65535>`
+- Edit route:
+  - `devgate init --non-interactive --edit-alias <alias> [--protocol ...] [--host ...] [--port ...]`
+- Remove route:
+  - `devgate init --non-interactive --remove-alias <alias>`
+
+Non-interactive validation rules:
+- Exactly one action must be provided: `--add-alias` XOR `--edit-alias` XOR `--remove-alias`.
+- `--add-alias` requires protocol/host/port.
+- `--edit-alias` requires at least one editable field.
+- Invalid combinations return exit `1` and status/code `error/init_invalid_args`.
+
 ## 2.2 Interaction Model
 Wizard flow:
 1. Load existing config if present (or create empty model)
-2. Show action menu:
+2. If routes are empty, run first-route guided prompt first (alias + target fields)
+3. Show action menu:
    - add alias
    - edit alias
    - remove alias
    - list current routes
    - save and exit
    - cancel
-3. Validate changes immediately after each action
-4. Validate whole config before save
-5. Print summary + next commands (`devgate setup`, `devgate start`)
+4. Validate changes immediately after each action
+5. Validate whole config before save
+6. Print summary + next commands (`devgate setup`, `devgate start`)
 
 ## 2.3 Exit Codes
 - `0`:
@@ -70,6 +85,12 @@ Wizard flow:
 - `--dry-run`: no file mutation; show planned diff/summary
 - `--json`: machine-readable result only
 - `--json --dry-run`: machine-readable planned result
+
+Flag behavior rules:
+- `--json` does not disable interactivity by itself; it only changes output format.
+- `--non-interactive` disables prompts and requires valid action flags.
+- `--json --non-interactive` is valid and returns JSON-only result.
+- `--dry-run` can be combined with both interactive and non-interactive flows.
 
 ## 3. Architecture
 
@@ -100,10 +121,10 @@ CLI (`cli/index.js`) should only parse args, invoke init orchestrator, and print
   "added": 2,
   "updated": 1,
   "removed": 0,
-  "savedPath": "./devgate.json",
+  "savedPath": "./devgate.json | null",
   "dryRun": false,
   "status": "saved|cancelled|preview|error",
-  "code": "init_saved",
+  "code": "init_saved|init_cancelled|init_preview|init_error|init_invalid_args",
   "message": "string",
   "details": {}
 }
@@ -112,9 +133,25 @@ CLI (`cli/index.js`) should only parse args, invoke init orchestrator, and print
 Required fields:
 - `schema_version`, `command`, `changed`, `added`, `updated`, `removed`, `savedPath`, `dryRun`, `status`, `code`, `message`, `details`
 
+Result rules:
+- `schema_version` is string `"1"` for this phase.
+- `savedPath` may be `null` for `status=cancelled|error`.
+- Status/code mappings:
+  - `saved` -> `init_saved`
+  - `cancelled` -> `init_cancelled`
+  - `preview` -> `init_preview`
+  - `error` -> `init_error|init_invalid_args`
+
 ## 3.3 Atomic Save Contract
 - Save path uses temp file + rename in same directory.
 - On write failure, original file must remain unchanged.
+
+Atomic algorithm requirements:
+- write temp file in target directory
+- flush file content before rename
+- replace target via rename semantics
+- cleanup temp file on failure best-effort
+- if target is locked (notably on Windows), return `init_error` with remediation and do not mutate original file
 
 ## 4. Merge/Edit/Remove Rules
 
@@ -131,6 +168,12 @@ Required fields:
   - `target.port`
   - optional route metadata (healthcheck/headers/stripPrefix)
 
+Merge/preservation rules:
+- Unknown top-level keys in config must be preserved.
+- Unknown route-level keys on untouched routes must be preserved.
+- For edited routes, only explicitly changed fields are replaced.
+- Route order remains stable unless user explicitly removes/adds routes.
+
 ## 4.3 Remove
 - Requires explicit confirmation.
 - Removal reflected in summary counters.
@@ -145,6 +188,11 @@ If existing config is invalid, wizard offers:
 1. show parse/validation error details
 2. start from clean template
 3. exit without changes
+
+Recovery safety rules:
+- Choosing clean template requires explicit confirmation.
+- Before first successful overwrite after parse failure, create backup:
+  - `<config>.bak.<timestamp>`
 
 ## 5.2 Non-interactive Mode
 - If required params are missing, return `1` with precise guidance.
@@ -167,11 +215,14 @@ Any failure must include actionable next step text.
 - multiple route changes in single run
 - cancel/no-op path
 - `--dry-run`, `--json`, `--non-interactive` behavior
+- flag-combination matrix for valid/invalid combinations
 
 ## 6.3 I/O Safety
 - atomic write success path
 - atomic write failure preserves original file
 - invalid existing JSON handling path
+- backup creation path after parse-failure recovery
+- Windows locked-target behavior
 
 ## 6.4 Regression
 - no regressions for:
@@ -203,4 +254,5 @@ Update at phase completion:
 - Existing config can be safely merged/edited/cleaned in one wizard run.
 - Save operation is atomic and preserves original file on failure.
 - `--dry-run`, `--json`, `--non-interactive` contracts are deterministic.
+- status/code mapping is deterministic across `saved|cancelled|preview|error`.
 - Documentation fully reflects the new init-first onboarding flow.
