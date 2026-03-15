@@ -12,6 +12,7 @@ Complete reference for all devgate CLI commands.
 | `print-hosts` | Print generated hostnames |
 | `doctor` | Run diagnostics |
 | `domain` | Manage `.devgate` resolver setup |
+| `setup` | Prepare local environment for first use |
 
 ## start
 
@@ -224,6 +225,39 @@ The doctor command checks:
 7. **Certificate cache**: Cached certificates status
 8. **Hostnames**: Generated hostname list
 9. **Domain resolver**: Provider, status code, effective strategy, fallback indicator
+
+## setup
+
+Prepare local environment for no-brainer onboarding.
+
+```bash
+devgate setup [options]
+```
+
+### Options
+
+| Option | Alias | Description | Default |
+|---|---|---|---|
+| `--verbose` | `-v` | Show detailed setup logs | false |
+| `--dry-run` |  | Show planned actions without mutating system state | false |
+| `--json` |  | Print machine-readable JSON output only | false |
+
+### Examples
+
+```bash
+devgate setup
+devgate setup --dry-run
+devgate setup --json
+devgate setup --json --verbose
+```
+
+### Output Contract Highlights
+
+- `start_ready`: current readiness for immediate `devgate start`.
+- `projected_start_ready`: expected readiness after planned setup actions.
+- `exit_code`:
+  - non-dry-run -> based on `start_ready`
+  - dry-run -> based on `projected_start_ready`
 
 ## domain
 

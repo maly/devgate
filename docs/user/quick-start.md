@@ -37,7 +37,22 @@ Create a file named `devgate.json` in your project root:
 }
 ```
 
-## Step 2: Start Your Backend Services
+## Step 2: Prepare Your Environment
+
+Run setup once:
+
+```bash
+devgate setup
+```
+
+Optional checks:
+
+```bash
+devgate setup --dry-run
+devgate setup --json
+```
+
+## Step 3: Start Your Backend Services
 
 Make sure your services are running on the ports specified in your config:
 
@@ -46,7 +61,7 @@ Make sure your services are running on the ports specified in your config:
 npm run dev  # or whatever command starts your service
 ```
 
-## Step 3: Start devgate
+## Step 4: Start devgate
 
 Run:
 
@@ -70,7 +85,7 @@ Proxy server started. Access your services at:
   https://dev.192-168-1-100.sslip.io (dashboard)
 ```
 
-## Step 4: Access Your Services
+## Step 5: Access Your Services
 
 Open your browser and navigate to:
 

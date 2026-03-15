@@ -43,13 +43,19 @@ npm install
 }
 ```
 
-2. Start the proxy:
+2. Run one-time environment setup:
+
+```bash
+devgate setup
+```
+
+3. Start the proxy:
 
 ```bash
 devgate start
 ```
 
-3. Access your services through the generated URLs:
+4. Access your services through the generated URLs:
 
 ```
 https://api.192-168-1-100.sslip.io
@@ -157,6 +163,22 @@ Create a `devgate.json` file in your project root. Here's a complete example:
 | `showInDashboard` | boolean | default: true | Show in dashboard |
 
 ## CLI Commands
+
+### setup
+
+Prepare local environment for first use:
+
+```bash
+devgate setup
+devgate setup --dry-run
+devgate setup --json
+devgate setup --json --verbose
+```
+
+Behavior:
+- `--dry-run`: no mutations, reports projected readiness.
+- `--json`: machine-readable output only.
+- `--verbose`: adds detailed logs (with `--json`, logs are in `details.logs`).
 
 ### start
 

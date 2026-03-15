@@ -30,6 +30,43 @@ On Windows, you may need to run:
 refreshenv
 ```
 
+## Setup Command Issues
+
+### `devgate setup` reports not ready
+
+Run with details:
+
+```bash
+devgate setup --verbose
+```
+
+For machine-readable diagnostics:
+
+```bash
+devgate setup --json --verbose
+```
+
+Check:
+- `start_ready` (current state)
+- `projected_start_ready` (expected state after planned actions)
+- remediation commands in failing steps
+
+### `devgate setup --dry-run` says projected ready, but current run is not ready
+
+This is expected when setup actions have not been applied yet.
+
+Run:
+
+```bash
+devgate setup
+```
+
+Then verify:
+
+```bash
+devgate setup --dry-run
+```
+
 ## Port Binding Issues
 
 ### EACCES: permission denied for port 443
