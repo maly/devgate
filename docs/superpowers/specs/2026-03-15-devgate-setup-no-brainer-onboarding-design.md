@@ -70,6 +70,22 @@ Normative rule:
 | `--json --verbose` | JSON-only output with additional `details.logs` field |
 | `--dry-run` | No mutations, output indicates planned actions |
 | `--dry-run --json` | JSON-only planned actions, no mutations |
+| `--dry-run --verbose` | Human-readable planned actions with detailed logs |
+| `--dry-run --json --verbose` | JSON-only planned actions with `details.logs` |
+
+Precedence rules:
+- `--json` always suppresses human-readable log lines.
+- `--verbose` only affects detail level (human output or JSON `details.logs`).
+
+## 2.6 `--dry-run` Semantics
+
+- `--dry-run` must evaluate projected state after planned actions, without mutating system state.
+- Output fields:
+  - `start_ready`: current readiness
+  - `projected_start_ready`: expected readiness if planned actions are executed
+- Exit code in `--dry-run` mode is based on `projected_start_ready`:
+  - `0` if `projected_start_ready=true`
+  - `1` otherwise
 
 ## 3. Architecture
 
@@ -121,6 +137,36 @@ Rules:
 - `remediation` can be empty on `ok|not_applicable`
 - `remediation` must contain at least one non-optional action on `fail`
 
+## 3.4 Top-Level Setup Result Contract
+
+`devgate setup --json` must return:
+
+```json
+{
+  "schema_version": "1",
+  "command": "setup",
+  "start_ready": false,
+  "projected_start_ready": true,
+  "exit_code": 0,
+  "code": "setup_projected_ready",
+  "summary": {
+    "ok": 3,
+    "warn": 1,
+    "fail": 0,
+    "not_applicable": 1
+  },
+  "steps": []
+}
+```
+
+Required fields:
+- `schema_version`, `command`, `start_ready`, `projected_start_ready`, `exit_code`, `code`, `summary`, `steps`
+
+Rules:
+- `steps` contains step objects from section 3.2 in execution order
+- `exit_code` must be `0|1`
+- `exit_code` mapping must match section 2.4 and 2.6 rules
+
 ## 3.3 Pipeline
 Execution order:
 1. `preflight`
@@ -170,6 +216,12 @@ Auto-install policy:
 - Retry policy: one attempt per installer candidate, no infinite retries
 - If all installer attempts fail, continue pipeline with `warn|fail` and explicit remediation list
 - Offline/unreachable package source must be reported with dedicated stable code
+
+Privilege and interactivity policy:
+- `devgate setup` must not block on interactive elevation prompts.
+- If elevated privileges are required and not available, step must return promptly with:
+  - stable `permission_denied`-family code
+  - explicit remediation command(s) (for example with `sudo`)
 
 ## 5. Error Handling and Fallback Semantics
 
@@ -228,6 +280,11 @@ Drift repair scope (idempotence boundary):
 - Step ordering contract test (`preflight -> mkcert -> domain -> verify -> summary`)
 - Flag compatibility tests (`--json`, `--verbose`, `--dry-run`)
 
+## 6.6 Machine Code Registry Tests
+- Validate emitted codes against a canonical registry list.
+- Enforce naming convention and reserved code prefixes.
+- Prevent accidental code changes without explicit schema version policy update.
+
 ## 7. Documentation Updates (Mandatory)
 
 At phase completion, update:
@@ -252,3 +309,34 @@ At phase completion, update:
 - On failure, output includes concrete next command.
 - `devgate start` works immediately after any setup run that returns `verify.start_ready=true`.
 - Documentation fully matches delivered behavior.
+
+## 10. Stable Code Registry (Phase 1)
+
+Naming convention:
+- `setup_*` for orchestrator-level codes
+- `preflight_*`, `mkcert_*`, `domain_*`, `verify_*` for step-level codes
+
+Reserved orchestrator codes:
+- `setup_ready`
+- `setup_not_ready`
+- `setup_projected_ready`
+- `setup_projected_not_ready`
+- `setup_internal_error`
+
+Core step codes (minimum set for phase 1):
+- `preflight_ok`
+- `preflight_permission_denied`
+- `mkcert_available`
+- `mkcert_install_succeeded`
+- `mkcert_install_failed`
+- `mkcert_trust_failed`
+- `domain_ready`
+- `domain_permission_denied`
+- `domain_not_applicable`
+- `verify_start_ready`
+- `verify_start_not_ready`
+
+Versioning policy:
+- Existing codes are stable within `schema_version=1`.
+- New codes can be added in minor releases.
+- Renaming/removing existing codes requires schema version bump.
