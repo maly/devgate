@@ -18,38 +18,25 @@ npm install
 
 ## Quick Start
 
-1. Create a `devgate.json` configuration file:
+1. Create or update routes with the init wizard:
 
-```json
-{
-  "routes": [
-    {
-      "alias": "api",
-      "target": {
-        "protocol": "http",
-        "host": "localhost",
-        "port": 3000
-      }
-    },
-    {
-      "alias": "web",
-      "target": {
-        "protocol": "http",
-        "host": "localhost",
-        "port": 5173
-      }
-    }
-  ]
-}
+```bash
+devgate init
 ```
 
-2. Start the proxy:
+2. Run one-time environment setup:
+
+```bash
+devgate setup
+```
+
+3. Start the proxy:
 
 ```bash
 devgate start
 ```
 
-3. Access your services through the generated URLs:
+4. Access your services through the generated URLs:
 
 ```
 https://api.192-168-1-100.sslip.io
@@ -157,6 +144,40 @@ Create a `devgate.json` file in your project root. Here's a complete example:
 | `showInDashboard` | boolean | default: true | Show in dashboard |
 
 ## CLI Commands
+
+### setup
+
+Prepare local environment for first use:
+
+```bash
+devgate setup
+devgate setup --dry-run
+devgate setup --json
+devgate setup --json --verbose
+```
+
+Behavior:
+- `--dry-run`: no mutations, reports projected readiness.
+- `--json`: machine-readable output only.
+- `--verbose`: adds detailed logs (with `--json`, logs are in `details.logs`).
+
+### init
+
+Configure routes interactively or in CI-safe non-interactive mode:
+
+```bash
+devgate init
+devgate init --dry-run --json
+devgate init --non-interactive --add-alias api --protocol http --host localhost --port 3000
+devgate init --non-interactive --edit-alias api --port 3001
+devgate init --non-interactive --remove-alias api
+```
+
+Notes:
+- On successful `--dry-run`, output uses `status=preview`, `code=init_preview`, exit code `0`.
+- Status/code mapping: `saved/init_saved`, `cancelled/init_cancelled`, `preview/init_preview`, `error/init_error|init_invalid_args`.
+- Non-interactive edit scope in this phase is limited to `protocol|host|port`.
+- If config parsing fails and you choose recovery, devgate can create backup before first overwrite: `<config>.bak.<timestamp>`.
 
 ### start
 

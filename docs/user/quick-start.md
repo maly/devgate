@@ -2,42 +2,48 @@
 
 This guide will get you up and running with devgate in 5 minutes.
 
-## Step 1: Create a Configuration File
+## Step 1: Initialize Routes
 
-Create a file named `devgate.json` in your project root:
+Run:
 
-```json
-{
-  "routes": [
-    {
-      "alias": "api",
-      "target": {
-        "protocol": "http",
-        "host": "localhost",
-        "port": 3000
-      }
-    },
-    {
-      "alias": "web",
-      "target": {
-        "protocol": "http",
-        "host": "localhost",
-        "port": 5173
-      }
-    },
-    {
-      "alias": "admin",
-      "target": {
-        "protocol": "http",
-        "host": "localhost",
-        "port": 8080
-      }
-    }
-  ]
-}
+```bash
+devgate init
 ```
 
-## Step 2: Start Your Backend Services
+This opens a guided flow to add/edit/remove aliases and writes `devgate.json`.
+
+Non-interactive examples:
+
+```bash
+devgate init --non-interactive --add-alias api --protocol http --host localhost --port 3000
+devgate init --non-interactive --edit-alias api --port 3001
+devgate init --non-interactive --remove-alias api
+```
+
+Preview-only:
+
+```bash
+devgate init --dry-run --json
+```
+
+On successful preview, the result is `status=preview`, `code=init_preview`, exit code `0`.
+
+## Step 2: Prepare Your Environment
+
+Run setup once:
+
+```bash
+devgate setup
+```
+
+Optional checks:
+
+```bash
+devgate setup --dry-run
+devgate setup --json
+```
+
+## Step 3: Start Your Backend Services
 
 Make sure your services are running on the ports specified in your config:
 
@@ -46,7 +52,7 @@ Make sure your services are running on the ports specified in your config:
 npm run dev  # or whatever command starts your service
 ```
 
-## Step 3: Start devgate
+## Step 4: Start devgate
 
 Run:
 
@@ -70,7 +76,7 @@ Proxy server started. Access your services at:
   https://dev.192-168-1-100.sslip.io (dashboard)
 ```
 
-## Step 4: Access Your Services
+## Step 5: Access Your Services
 
 Open your browser and navigate to:
 
