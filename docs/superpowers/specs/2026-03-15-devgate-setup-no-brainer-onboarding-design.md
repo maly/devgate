@@ -53,8 +53,23 @@ devgate setup
 - Re-running should confirm healthy state and repair drift where safe.
 
 ## 2.4 Exit Codes
-- `0`: environment usable for normal `devgate start` flow (warnings allowed)
-- `1`: blocking setup issue remains
+- `0`: `verify.start_ready=true` (environment is ready for immediate `devgate start`)
+- `1`: `verify.start_ready=false` (blocking setup issue remains)
+
+Normative rule:
+- Warnings are allowed only when they do not affect `verify.start_ready`.
+- Any blocking issue that prevents immediate `start` readiness must return exit `1`.
+
+## 2.5 Flag Compatibility Matrix
+
+| Flags | Behavior |
+|---|---|
+| default | Human-readable concise output |
+| `--verbose` | Human-readable detailed output |
+| `--json` | JSON-only output (no extra human log lines) |
+| `--json --verbose` | JSON-only output with additional `details.logs` field |
+| `--dry-run` | No mutations, output indicates planned actions |
+| `--dry-run --json` | JSON-only planned actions, no mutations |
 
 ## 3. Architecture
 
@@ -80,13 +95,31 @@ Each step returns:
 
 ```json
 {
-  "status": "ok|warn|fail|skipped|not_applicable",
+  "schema_version": "1",
+  "step_id": "preflight|mkcert|domain|verify|summary",
+  "status": "ok|warn|fail|not_applicable",
   "code": "stable_machine_code",
   "message": "human readable",
-  "remediation": "explicit next command",
-  "details": {}
+  "remediation": [
+    {
+      "command": "string",
+      "reason": "string",
+      "optional": false
+    }
+  ],
+  "details": {},
+  "duration_ms": 0
 }
 ```
+
+Required fields:
+- `schema_version`, `step_id`, `status`, `code`, `message`, `remediation`, `details`, `duration_ms`
+
+Rules:
+- `status` enum: `ok|warn|fail|not_applicable`
+- `duration_ms` is non-negative integer
+- `remediation` can be empty on `ok|not_applicable`
+- `remediation` must contain at least one non-optional action on `fail`
 
 ## 3.3 Pipeline
 Execution order:
@@ -100,10 +133,18 @@ Design rule:
 - Orchestrator should complete full pipeline and present aggregated result.
 - Only unrecoverable internal runtime issues can abort immediately.
 
+Abort-class internal errors (immediate exit `1`):
+- Unexpected orchestrator exception before step contract can be produced
+- Internal serialization failure for required output mode (for example JSON output encoding failure)
+
+Even on abort-class errors:
+- top-level output must include machine-readable `code`
+- include completed step results collected so far, if available
+
 ## 4. Platform Behavior
 
 ## 4.1 Windows
-- Domain step returns `not_applicable` (or `skipped`) with clear reason.
+- Domain step returns `not_applicable` with clear reason.
 - No penalty to final usability if other requirements pass.
 - Effective runtime strategy remains `sslip`.
 
@@ -112,11 +153,23 @@ Design rule:
 - Permission issues return explicit remediation:
   - `sudo devgate domain setup`
 - If domain setup is unavailable, result can be `warn` (non-blocking) if runtime still usable via fallback.
+- If domain setup is unavailable, runtime strategy must fall back to `sslip` and `verify` must assert fallback routing readiness.
 
 ## 4.3 mkcert behavior
 - If missing, attempt auto-install by platform package manager flow.
 - Then run trust/CA initialization.
 - On failure, return actionable remediation commands.
+
+Auto-install policy:
+- Non-interactive mode only
+- Platform installers:
+  - Windows: `winget`, then `choco` fallback
+  - macOS: `brew`
+  - Linux: distro package manager path already implemented by devgate
+- Per installer attempt timeout: 5 minutes
+- Retry policy: one attempt per installer candidate, no infinite retries
+- If all installer attempts fail, continue pipeline with `warn|fail` and explicit remediation list
+- Offline/unreachable package source must be reported with dedicated stable code
 
 ## 5. Error Handling and Fallback Semantics
 
@@ -133,6 +186,15 @@ Severity model:
 - `fail`: blocking issue for expected onboarding outcome
 - `not_applicable`: intentionally skipped for platform
 
+Drift repair scope (idempotence boundary):
+- Allowed mutations:
+  - create/update devgate-managed cert files in devgate cert directory
+  - run mkcert trust initialization
+  - create/update devgate-managed domain resolver config
+- Never mutate:
+  - arbitrary user files outside devgate-managed paths
+  - non-devgate DNS configuration not required for `.devgate`
+
 ## 6. Testing Strategy
 
 ## 6.1 Unit Tests
@@ -146,17 +208,25 @@ Severity model:
 - blocking failure path
 - `--dry-run`, `--verbose`, `--json` behavior
 - exit code contract (`0`/`1`)
+- deterministic mapping test: step result matrix -> exit code
 
 ## 6.3 Platform Matrix via Mocks
 - Windows: domain step not applicable
 - macOS/Linux: domain setup attempted
 - mkcert missing: auto-install branch executed
+- macOS/Linux domain failure: fallback strategy `sslip` verified as start-ready path
 
 ## 6.4 Regression Tests
 - Existing commands remain compatible:
   - `start`
   - `doctor`
-  - `domain`
+- `domain`
+
+## 6.5 Contract and Stability Tests
+- JSON schema contract tests for `--json` output
+- Stable `code` value snapshot tests for known scenarios
+- Step ordering contract test (`preflight -> mkcert -> domain -> verify -> summary`)
+- Flag compatibility tests (`--json`, `--verbose`, `--dry-run`)
 
 ## 7. Documentation Updates (Mandatory)
 
@@ -173,12 +243,12 @@ At phase completion, update:
 2. Implement command + orchestration + tests
 3. Update docs to reflect behavior changes
 4. Publish beta for validation
-5. Merge to `master` after acceptance
+5. Merge to repository default branch after acceptance
 
 ## 9. Acceptance Criteria
 
 - Fresh-user onboarding requires one obvious command (`devgate setup`).
 - `devgate setup` is idempotent and safe to re-run.
 - On failure, output includes concrete next command.
-- `devgate start` works immediately after successful setup path.
+- `devgate start` works immediately after any setup run that returns `verify.start_ready=true`.
 - Documentation fully matches delivered behavior.
