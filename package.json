@@ -36,6 +36,7 @@
     "test:ui": "vitest ui",
     "lint": "echo \"Linting not configured\"",
     "start": "node cli/bin/devgate.js start",
+    "start:force": "node cli/bin/devgate.js start --force",
     "validate": "node cli/bin/devgate.js validate",
     "doctor": "node cli/bin/devgate.js doctor"
   },

@@ -69,6 +69,25 @@ vi.mock('../../setup/index.js', () => ({
   runSetup: runSetupMock
 }));
 
+const acquireInstanceLockMock = vi.fn(async () => ({
+  acquired: true,
+  lockPath: '/tmp/devgate.lock',
+  record: { pid: 123, instanceId: 'test-lock' },
+  existing: null
+}));
+const releaseInstanceLockMock = vi.fn(async () => true);
+const forceStopInstanceMock = vi.fn(async () => ({
+  ok: true,
+  code: 'instance_force_stopped',
+  message: 'Previous instance force-stopped.'
+}));
+
+vi.mock('../../instance/index.js', () => ({
+  acquireInstanceLock: acquireInstanceLockMock,
+  releaseInstanceLock: releaseInstanceLockMock,
+  forceStopInstance: forceStopInstanceMock
+}));
+
 const { default: cli } = await import('../../cli/index.js');
 
 function setPlatform(value) {
@@ -149,6 +168,45 @@ describe('domain CLI integration', () => {
     expect(result.fallback).toBe(true);
     expect(logs.join('\n')).toContain('sudo devgate domain setup');
     expect(logs.join('\n')).toContain('app.192-168-1-50.sslip.io');
+  });
+
+  it('start fails when another instance is running and --force is not set', async () => {
+    setPlatform('linux');
+    acquireInstanceLockMock.mockResolvedValueOnce({
+      acquired: false,
+      lockPath: '/tmp/devgate.lock',
+      record: null,
+      existing: { pid: 7777, workspace: '/tmp/other-workspace' }
+    });
+
+    const result = await cli.run(['start', '--config', configPath]);
+
+    expect(result.exitCode).toBe(1);
+    expect(errors.join('\n')).toContain('Use --force');
+  });
+
+  it('start with --force stops previous instance and continues startup', async () => {
+    setPlatform('linux');
+    process.env.DEVGATE_TEST_ONCE = '1';
+    acquireInstanceLockMock
+      .mockResolvedValueOnce({
+        acquired: false,
+        lockPath: '/tmp/devgate.lock',
+        record: null,
+        existing: { pid: 8888, workspace: '/tmp/other-workspace' }
+      })
+      .mockResolvedValueOnce({
+        acquired: true,
+        lockPath: '/tmp/devgate.lock',
+        record: { pid: 123, instanceId: 'test-lock-force' },
+        existing: null
+      });
+
+    const result = await cli.run(['start', '--config', configPath, '--force']);
+
+    expect(result.exitCode).toBe(0);
+    expect(forceStopInstanceMock).toHaveBeenCalledTimes(1);
+    expect(logs.join('\n')).toContain('Previous instance stopped');
   });
 
   it('start on linux with ready resolver uses .devgate hostnames', async () => {

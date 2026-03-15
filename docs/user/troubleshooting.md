@@ -99,6 +99,27 @@ Before first overwrite, devgate can create backup:
 
 ## Port Binding Issues
 
+### `devgate start` says another instance is already running
+
+`devgate start` enforces a single running instance per machine.
+
+If another instance is active, start exits with error and suggests `--force`.
+
+Use:
+
+```bash
+devgate start --force
+```
+
+This attempts to stop the previous instance first, then starts the new one.
+
+If you run through npm scripts on Windows/PowerShell, use one of:
+
+```bash
+npm run start:force
+npm run start -- -- --force
+```
+
 ### EACCES: permission denied for port 443
 
 On Unix-like systems (including macOS and Linux), binding to ports below 1024 requires root privileges.

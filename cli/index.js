@@ -10,10 +10,12 @@ import { resolveDomainStrategy } from '../domain/strategy-resolver.js';
 import { runSetup } from '../setup/index.js';
 import { renderSetupSummary } from '../setup/summary.js';
 import { runInit } from '../init/index.js';
+import { acquireInstanceLock, releaseInstanceLock, forceStopInstance } from '../instance/index.js';
 import os from 'os';
 import { existsSync } from 'fs';
 import { createServer } from 'net';
 import { execSync } from 'child_process';
+import path from 'path';
 
 const DEFAULT_CONFIG_PATH = './devgate.json';
 
@@ -71,6 +73,8 @@ function parseArgs(args) {
     stripPrefix: undefined,
     chooseCleanTemplate: false,
     confirmRecovery: false
+    ,
+    force: false
   };
 
   let i = 0;
@@ -303,6 +307,12 @@ function parseArgs(args) {
       continue;
     }
 
+    if (arg === '--force') {
+      options.force = true;
+      i++;
+      continue;
+    }
+
     throw new Error(`Unknown argument: ${arg}`);
   }
 
@@ -325,6 +335,7 @@ function printCommandHelp(command) {
     --no-dashboard           Disable dashboard
     --self-signed-fallback   Allow self-signed certificates
     --domain-mode <mode>     Domain mode: auto|sslip|devgate
+    --force                  Stop previous devgate instance and take over
     --help, -h              Show this help`,
 
     validate: `devgate validate --config <path> [options]
@@ -517,6 +528,76 @@ async function startCommand(args) {
     return { exitCode: 0 };
   }
 
+  let lockHandle = null;
+  let proxy = null;
+  let healthChecker = null;
+  let healthSyncInterval = null;
+  let shuttingDown = false;
+
+  const releaseLock = async () => {
+    if (!lockHandle || !lockHandle.record) {
+      return;
+    }
+    await releaseInstanceLock({ lockPath: lockHandle.lockPath, record: lockHandle.record });
+    lockHandle = null;
+  };
+
+  const shutdown = async () => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    console.log('\nShutting down...');
+    if (healthChecker) {
+      healthChecker.stopAll();
+    }
+    if (healthSyncInterval) {
+      clearInterval(healthSyncInterval);
+    }
+    if (proxy) {
+      await proxy.stop();
+    }
+    await releaseLock();
+    console.log('Server stopped.');
+    process.exit(0);
+  };
+
+  try {
+    const firstLock = await acquireInstanceLock({
+      metadata: {
+        configPath: path.resolve(options.configPath || DEFAULT_CONFIG_PATH),
+        requestedBy: 'devgate start'
+      }
+    });
+
+    if (!firstLock.acquired) {
+      if (!options.force) {
+        const existing = firstLock.existing || {};
+        const workspace = existing.workspace || 'unknown';
+        const pid = existing.pid || 'unknown';
+        throw new Error(`devgate is already running (pid ${pid}, workspace ${workspace}). Use --force to stop previous instance.`);
+      }
+
+      const forced = await forceStopInstance({ existing: firstLock.existing });
+      if (!forced.ok) {
+        throw new Error(`${forced.message} Use OS process manager to stop it manually.`);
+      }
+
+      console.log(`Previous instance stopped (${forced.code}). Continuing with startup...`);
+      const retryLock = await acquireInstanceLock({
+        metadata: {
+          configPath: path.resolve(options.configPath || DEFAULT_CONFIG_PATH),
+          requestedBy: 'devgate start --force'
+        }
+      });
+      if (!retryLock.acquired) {
+        throw new Error('Could not acquire instance lock after --force takeover.');
+      }
+      lockHandle = retryLock;
+    } else {
+      lockHandle = firstLock;
+    }
+
   const { runtimeConfig, fileConfig } = await prepareConfig(options);
 
   const ipResult = detectLocalIp({ preferredIp: options.ip || runtimeConfig.preferredIp });
@@ -589,8 +670,6 @@ async function startCommand(args) {
     }
   }
 
-  let proxy;
-
   if (runtimeConfig.dashboardEnabled) {
     routesMap[hostnames.dashboard.hostname] = {
       target: null,
@@ -640,8 +719,6 @@ async function startCommand(args) {
   console.log(`  Proxy server running on https://localhost:${runtimeConfig.httpsPort}`);
   console.log('');
 
-  let healthChecker = null;
-  let healthSyncInterval = null;
   const routesWithHealthcheck = runtimeConfig.routes.filter(r => r.healthcheck);
   if (routesWithHealthcheck.length > 0) {
     console.log('Starting health checks...');
@@ -659,8 +736,10 @@ async function startCommand(args) {
   console.log('Press Ctrl+C to stop the server');
   console.log('');
 
-  const shutdown = async () => {
-    console.log('\nShutting down...');
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
+  if (process.env.DEVGATE_TEST_ONCE === '1') {
     if (healthChecker) {
       healthChecker.stopAll();
     }
@@ -668,14 +747,7 @@ async function startCommand(args) {
       clearInterval(healthSyncInterval);
     }
     await proxy.stop();
-    console.log('Server stopped.');
-    process.exit(0);
-  };
-
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
-
-  if (process.env.DEVGATE_TEST_ONCE === '1') {
+    await releaseLock();
     return {
       exitCode: 0,
       strategy: domainContext.decision.strategy,
@@ -687,6 +759,19 @@ async function startCommand(args) {
   console.log('Server is running. Press Ctrl+C to stop.');
   
   await new Promise(() => {});
+  } catch (err) {
+    if (healthChecker) {
+      healthChecker.stopAll();
+    }
+    if (healthSyncInterval) {
+      clearInterval(healthSyncInterval);
+    }
+    if (proxy) {
+      await proxy.stop();
+    }
+    await releaseLock();
+    throw err;
+  }
 }
 
 /**

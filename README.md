@@ -188,6 +188,8 @@ devgate start
 devgate start --config ./my-config.json
 devgate start --ip 192.168.1.50
 devgate start --https-port 8443 --http-port 8080
+devgate start --force
+npm run start:force
 ```
 
 Options:
@@ -201,6 +203,11 @@ Options:
 - `--no-dashboard` - Disable dashboard
 - `--self-signed-fallback` - Allow self-signed certificates
 - `--domain-mode <mode>` - Domain mode override (`auto`, `sslip`, `devgate`)
+- `--force` - Stop previous running devgate instance and take over
+
+On Windows/PowerShell through npm scripts, use either:
+- `npm run start:force`
+- `npm run start -- -- --force`
 
 ### validate
 

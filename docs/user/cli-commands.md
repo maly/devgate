@@ -37,6 +37,7 @@ devgate start [options]
 | `--no-dashboard` | | Disable dashboard | enabled |
 | `--self-signed-fallback` | | Allow self-signed certificates | false |
 | `--domain-mode <mode>` | | Domain mode override (`auto`, `sslip`, `devgate`) | from config (`auto`) |
+| `--force` | | Stop previous running devgate instance and take over | false |
 
 ### Examples
 
@@ -61,6 +62,12 @@ devgate start --self-signed-fallback
 
 # Combine options
 devgate start -c ./devgate.json -i 192.168.1.50 -v
+
+# Take over previous running instance
+devgate start --force
+
+# npm script shortcut (Windows-friendly)
+npm run start:force
 ```
 
 ## validate
