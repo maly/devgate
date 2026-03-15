@@ -289,6 +289,26 @@ Decision table:
 | macOS/Linux | `devgate` or `auto` | `ready` | `devgate` | no |
 | macOS/Linux | `devgate` or `auto` | `missing`/`unsupported`/`error` | `sslip` | yes |
 
+## VS Code Extension (MVP)
+
+Extension source lives in `packages/vscode-extension`.
+
+MVP commands:
+- `Devgate: Init`
+- `Devgate: Setup`
+- `Devgate: Start`
+- `Devgate: Start (Force)`
+- `Devgate: Stop`
+- `Devgate: Doctor`
+- `Devgate: Domain Status|Setup|Teardown`
+
+Runtime behavior:
+- CLI resolution is local-first:
+  1. workspace-local `node cli/bin/devgate.js`
+  2. fallback global `devgate`
+- status bar shows `Stopped|Starting|Running|Error`
+- output channel `Devgate` streams command stdout/stderr
+
 ## Hot Reload Lifecycle
 
 When `devgate start` runs with a config file, devgate watches that file and applies changes without restart.

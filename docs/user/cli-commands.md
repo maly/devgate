@@ -2,6 +2,18 @@
 
 Complete reference for all devgate CLI commands.
 
+## VS Code Integration (MVP)
+
+The first-party extension in `packages/vscode-extension` wraps these CLI commands in VS Code.
+
+Highlights:
+- Command Palette entries for `Init|Setup|Start|Start (Force)|Stop|Doctor|Domain`.
+- Local-first CLI execution:
+  - use workspace `node cli/bin/devgate.js` when present
+  - otherwise fallback to global `devgate`.
+- Status bar reflects runtime state.
+- Output channel `Devgate` captures command stdout/stderr.
+
 ## Commands Overview
 
 | Command | Description |

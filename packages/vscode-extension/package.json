@@ -1,0 +1,40 @@
+{
+  "name": "devgate-vscode-extension",
+  "displayName": "Devgate",
+  "description": "Run devgate from VS Code with status bar and output integration",
+  "version": "0.1.0",
+  "publisher": "maly",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onCommand:devgate.init",
+    "onCommand:devgate.setup",
+    "onCommand:devgate.start",
+    "onCommand:devgate.startForce",
+    "onCommand:devgate.stop",
+    "onCommand:devgate.doctor",
+    "onCommand:devgate.domainStatus",
+    "onCommand:devgate.domainSetup",
+    "onCommand:devgate.domainTeardown"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "devgate.init", "title": "Devgate: Init" },
+      { "command": "devgate.setup", "title": "Devgate: Setup" },
+      { "command": "devgate.start", "title": "Devgate: Start" },
+      { "command": "devgate.startForce", "title": "Devgate: Start (Force)" },
+      { "command": "devgate.stop", "title": "Devgate: Stop" },
+      { "command": "devgate.doctor", "title": "Devgate: Doctor" },
+      { "command": "devgate.domainStatus", "title": "Devgate: Domain Status" },
+      { "command": "devgate.domainSetup", "title": "Devgate: Domain Setup" },
+      { "command": "devgate.domainTeardown", "title": "Devgate: Domain Teardown" }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p ./tsconfig.json",
+    "test": "vitest run packages/vscode-extension/tests"
+  }
+}
