@@ -9,6 +9,7 @@ import { getDomainStatus, setupDomainResolver, teardownDomainResolver } from '..
 import { resolveDomainStrategy } from '../domain/strategy-resolver.js';
 import { runSetup } from '../setup/index.js';
 import { renderSetupSummary } from '../setup/summary.js';
+import { runInit } from '../init/index.js';
 import os from 'os';
 import { existsSync } from 'fs';
 import { createServer } from 'net';
@@ -57,7 +58,19 @@ function parseArgs(args) {
     dryRun: false,
     dashboardEnabled: true,
     selfSignedFallback: false,
-    domainMode: null
+    domainMode: null,
+    nonInteractive: false,
+    addAlias: null,
+    editAlias: null,
+    removeAlias: null,
+    protocol: undefined,
+    host: undefined,
+    port: undefined,
+    healthcheck: undefined,
+    headers: undefined,
+    stripPrefix: undefined,
+    chooseCleanTemplate: false,
+    confirmRecovery: false
   };
 
   let i = 0;
@@ -144,6 +157,117 @@ function parseArgs(args) {
 
     if (arg === '--dry-run') {
       options.dryRun = true;
+      i++;
+      continue;
+    }
+
+    if (arg === '--non-interactive') {
+      options.nonInteractive = true;
+      i++;
+      continue;
+    }
+
+    if (arg === '--add-alias') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.addAlias = args[i + 1];
+        i += 2;
+      } else {
+        throw new Error('--add-alias requires an alias');
+      }
+      continue;
+    }
+
+    if (arg === '--edit-alias') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.editAlias = args[i + 1];
+        i += 2;
+      } else {
+        throw new Error('--edit-alias requires an alias');
+      }
+      continue;
+    }
+
+    if (arg === '--remove-alias') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.removeAlias = args[i + 1];
+        i += 2;
+      } else {
+        throw new Error('--remove-alias requires an alias');
+      }
+      continue;
+    }
+
+    if (arg === '--protocol') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.protocol = args[i + 1];
+        i += 2;
+      } else {
+        throw new Error('--protocol requires a value (http|https)');
+      }
+      continue;
+    }
+
+    if (arg === '--host') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.host = args[i + 1];
+        i += 2;
+      } else {
+        throw new Error('--host requires a value');
+      }
+      continue;
+    }
+
+    if (arg === '--port') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.port = parseInt(args[i + 1], 10);
+        if (isNaN(options.port) || options.port < 1 || options.port > 65535) {
+          throw new Error('--port must be a number between 1 and 65535');
+        }
+        i += 2;
+      } else {
+        throw new Error('--port requires a value');
+      }
+      continue;
+    }
+
+    if (arg === '--healthcheck') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.healthcheck = args[i + 1];
+        i += 2;
+      } else {
+        throw new Error('--healthcheck requires a value');
+      }
+      continue;
+    }
+
+    if (arg === '--headers') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.headers = args[i + 1];
+        i += 2;
+      } else {
+        throw new Error('--headers requires a value');
+      }
+      continue;
+    }
+
+    if (arg === '--strip-prefix') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.stripPrefix = args[i + 1];
+        i += 2;
+      } else {
+        throw new Error('--strip-prefix requires a value');
+      }
+      continue;
+    }
+
+    if (arg === '--choose-clean-template') {
+      options.chooseCleanTemplate = true;
+      i++;
+      continue;
+    }
+
+    if (arg === '--confirm-recovery' || arg === '--yes') {
+      options.confirmRecovery = true;
       i++;
       continue;
     }
@@ -253,6 +377,25 @@ function printCommandHelp(command) {
     --json                   Print machine-readable JSON result only
     --help, -h               Show this help`,
 
+    init: `devgate init [options]
+  Configure routes via interactive or non-interactive workflow
+
+  Options:
+    --config, -c <path>       Path to config file
+    --dry-run                 Preview result without writing files
+    --json                    Print machine-readable JSON result only
+    --non-interactive         Disable prompts, require exactly one action
+    --add-alias <alias>       Add action alias
+    --edit-alias <alias>      Edit action alias
+    --remove-alias <alias>    Remove action alias
+    --protocol <http|https>   Target protocol for add/edit
+    --host <host>             Target host for add/edit
+    --port <port>             Target port for add/edit
+    --choose-clean-template   Replace invalid config with clean template
+    --confirm-recovery        Confirm recovery overwrite on parse failure
+    --yes                     Alias for --confirm-recovery
+    --help, -h                Show this help`,
+
     domain: `devgate domain <status|setup|teardown>
   Manage native .devgate resolver integration (macOS/Linux)
 
@@ -294,6 +437,7 @@ function printCommandHelp(command) {
     print-config     Print effective configuration
     print-hosts      Print generated hostnames
     doctor           Run diagnostics
+    init             Configure routes (wizard/non-interactive)
     install-mkcert  Install mkcert automatically
     domain           Manage .devgate resolver setup
     setup           Prepare local environment for first use
@@ -886,6 +1030,61 @@ async function setupCommand(args) {
   };
 }
 
+function renderInitSummary(result) {
+  const lines = [
+    'Init summary:',
+    `  Status: ${result.status}`,
+    `  Code: ${result.code}`,
+    `  Changed: ${result.changed ? 'yes' : 'no'}`,
+    `  Added: ${result.added}`,
+    `  Updated: ${result.updated}`,
+    `  Removed: ${result.removed}`
+  ];
+
+  if (result.savedPath) {
+    lines.push(`  Config: ${result.savedPath}`);
+  }
+  if (result.message) {
+    lines.push('');
+    lines.push(result.message);
+  }
+  return lines.join('\n');
+}
+
+async function initCommand(args) {
+  const options = parseArgs(args);
+
+  if (options.help) {
+    printCommandHelp('init');
+    return { exitCode: 0 };
+  }
+
+  const result = await runInit({
+    configPath: options.configPath || DEFAULT_CONFIG_PATH,
+    dryRun: options.dryRun,
+    nonInteractive: options.nonInteractive,
+    addAlias: options.addAlias,
+    editAlias: options.editAlias,
+    removeAlias: options.removeAlias,
+    protocol: options.protocol,
+    host: options.host,
+    port: options.port,
+    healthcheck: options.healthcheck,
+    headers: options.headers,
+    stripPrefix: options.stripPrefix,
+    chooseCleanTemplate: options.chooseCleanTemplate,
+    confirmRecovery: options.confirmRecovery
+  });
+
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(renderInitSummary(result));
+  }
+
+  return { exitCode: result.exitCode };
+}
+
 async function domainCommand(args) {
   const subcommand = args[0];
   if (!subcommand || subcommand === '--help' || subcommand === '-h') {
@@ -954,6 +1153,7 @@ async function run(args = process.argv.slice(2)) {
     'print-hosts': printHostsCommand,
     'doctor': doctorCommand,
     'setup': setupCommand,
+    'init': initCommand,
     'install-mkcert': installMkcertCommand,
     'domain': domainCommand
   };
