@@ -28,7 +28,7 @@
     }
   },
   "bin": {
-    "devgate": "./cli/bin/devgate.js"
+    "devgate": "cli/bin/devgate.js"
   },
   "scripts": {
     "test": "vitest",
