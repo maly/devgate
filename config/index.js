@@ -13,6 +13,7 @@ const DEFAULT_CONFIG = {
   httpsPort: 443,
   httpRedirectPort: 80,
   dashboardAlias: 'dev',
+  domainMode: 'auto',
   hostnameStrategy: 'sslip',
   preferredIp: null,
   certDir: null,
@@ -94,6 +95,13 @@ export function validateConfig(config) {
     const validStrategies = ['sslip', 'nip', 'custom'];
     if (!validStrategies.includes(config.hostnameStrategy)) {
       errors.push(`hostnameStrategy must be one of: ${validStrategies.join(', ')}`);
+    }
+  }
+
+  if (config.domainMode !== undefined) {
+    const validDomainModes = ['auto', 'sslip', 'devgate'];
+    if (!validDomainModes.includes(config.domainMode)) {
+      errors.push(`domainMode must be one of: ${validDomainModes.join(', ')}`);
     }
   }
 
@@ -193,6 +201,7 @@ export function resolveRuntimeConfig(config, options = {}) {
   if (options.httpsPort !== undefined) runtimeConfig.httpsPort = options.httpsPort;
   if (options.httpRedirectPort !== undefined) runtimeConfig.httpRedirectPort = options.httpRedirectPort;
   if (options.dashboardAlias !== undefined) runtimeConfig.dashboardAlias = options.dashboardAlias;
+  if (options.domainMode !== undefined) runtimeConfig.domainMode = options.domainMode;
   if (options.hostnameStrategy !== undefined) runtimeConfig.hostnameStrategy = options.hostnameStrategy;
   if (options.preferredIp !== undefined) runtimeConfig.preferredIp = options.preferredIp;
   if (options.certDir !== undefined) runtimeConfig.certDir = options.certDir;

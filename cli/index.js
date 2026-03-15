@@ -5,6 +5,8 @@ import { CertManager } from '../cert/index.js';
 import { createProxy } from '../proxy/index.js';
 import { renderDashboard } from '../dashboard/index.js';
 import { HealthChecker } from '../health/index.js';
+import { getDomainStatus, setupDomainResolver, teardownDomainResolver } from '../domain/index.js';
+import { resolveDomainStrategy } from '../domain/strategy-resolver.js';
 import os from 'os';
 import { existsSync } from 'fs';
 import { createServer } from 'net';
@@ -49,7 +51,8 @@ function parseArgs(args) {
     certDir: null,
     verbose: false,
     dashboardEnabled: true,
-    selfSignedFallback: false
+    selfSignedFallback: false,
+    domainMode: null
   };
 
   let i = 0;
@@ -140,6 +143,19 @@ function parseArgs(args) {
       continue;
     }
 
+    if (arg === '--domain-mode') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.domainMode = args[i + 1];
+        if (!['auto', 'sslip', 'devgate'].includes(options.domainMode)) {
+          throw new Error('--domain-mode must be one of: auto, sslip, devgate');
+        }
+        i += 2;
+      } else {
+        throw new Error('--domain-mode requires a mode (auto|sslip|devgate)');
+      }
+      continue;
+    }
+
     if (arg === '--help' || arg === '-h') {
       options.help = true;
       i++;
@@ -167,6 +183,7 @@ function printCommandHelp(command) {
     --verbose, -v            Enable verbose output
     --no-dashboard           Disable dashboard
     --self-signed-fallback   Allow self-signed certificates
+    --domain-mode <mode>     Domain mode: auto|sslip|devgate
     --help, -h              Show this help`,
 
     validate: `devgate validate --config <path> [options]
@@ -187,6 +204,7 @@ function printCommandHelp(command) {
     --cert-dir <path>        Certificate directory
     --verbose, -v            Show verbose output
     --no-dashboard           Disable dashboard
+    --domain-mode <mode>     Domain mode override: auto|sslip|devgate
     --help, -h              Show this help`,
 
     'print-hosts': `devgate print-hosts --config <path> [options]
@@ -195,6 +213,7 @@ function printCommandHelp(command) {
   Options:
     --config, -c <path>       Path to config file
     --ip, -i <ipv4>          Override IP detection
+    --domain-mode <mode>     Domain mode override: auto|sslip|devgate
     --verbose, -v            Show verbose output
     --help, -h              Show this help`,
 
@@ -204,7 +223,24 @@ function printCommandHelp(command) {
   Options:
     --config, -c <path>       Path to config file
     --ip, -i <ipv4>          Override IP detection
+    --domain-mode <mode>     Domain mode override: auto|sslip|devgate
     --verbose, -v            Show verbose output
+    --help, -h              Show this help`,
+
+    domain: `devgate domain <status|setup|teardown>
+  Manage native .devgate resolver integration (macOS/Linux)
+
+  Subcommands:
+    status                Print resolver status
+    setup                 Configure resolver (usually requires sudo)
+    teardown              Remove resolver configuration (usually requires sudo)
+
+  Examples:
+    devgate domain status
+    sudo devgate domain setup
+    sudo devgate domain teardown
+
+  Options:
     --help, -h              Show this help`,
 
     'install-mkcert': `devgate install-mkcert
@@ -233,6 +269,7 @@ function printCommandHelp(command) {
     print-hosts      Print generated hostnames
     doctor           Run diagnostics
     install-mkcert  Install mkcert automatically
+    domain           Manage .devgate resolver setup
 
   Options:
     --help, -h         Show help for a command
@@ -267,10 +304,38 @@ async function prepareConfig(options) {
   if (options.httpPort !== null) runtimeOptions.httpRedirectPort = options.httpPort;
   if (options.certDir !== null) runtimeOptions.certDir = options.certDir;
   if (options.dashboardEnabled !== true) runtimeOptions.dashboardEnabled = options.dashboardEnabled;
+  if (options.domainMode !== null) runtimeOptions.domainMode = options.domainMode;
 
   const runtimeConfig = resolveRuntimeConfig(fileConfig, runtimeOptions);
   
   return { fileConfig, runtimeConfig };
+}
+
+async function resolveDomainContext(runtimeConfig, options = {}) {
+  const mode = options.domainMode || runtimeConfig.domainMode || 'auto';
+
+  let domainStatus;
+  if (process.platform === 'win32') {
+    domainStatus = {
+      status: 'unsupported',
+      code: 'provider_unsupported',
+      message: 'Windows platform uses sslip strategy',
+      remediation: 'Use domain setup on macOS/Linux only',
+      platform: 'win32',
+      provider: 'windows',
+      details: {}
+    };
+  } else {
+    domainStatus = await getDomainStatus();
+  }
+
+  const decision = resolveDomainStrategy({
+    platform: process.platform,
+    mode,
+    status: domainStatus
+  });
+
+  return { mode, domainStatus, decision };
 }
 
 async function startCommand(args) {
@@ -300,9 +365,18 @@ async function startCommand(args) {
   console.log(`  Local IP: ${ipResult.ip}`);
   console.log('');
 
-  const hostnames = buildHostnames(runtimeConfig, { ip: ipResult.ip });
+  const domainContext = await resolveDomainContext(runtimeConfig, options);
+  if (domainContext.decision.fallback) {
+    console.log('Warning: Native .devgate resolver is not available, falling back to sslip hostnames.');
+    console.log(`  Reason: ${domainContext.decision.warningCode}`);
+    console.log('  Run: sudo devgate domain setup');
+    console.log('');
+  }
+
+  const hostnames = buildHostnames(runtimeConfig, { ip: ipResult.ip, strategy: domainContext.decision.strategy });
   
   console.log('Hostnames:');
+  console.log(`  Strategy: ${domainContext.decision.strategy}`);
   console.log(`  Dashboard: https://${hostnames.dashboard.hostname}`);
   for (const route of hostnames.routes) {
     console.log(`  ${route.alias}: https://${route.hostname}`);
@@ -365,7 +439,7 @@ async function startCommand(args) {
     configPath: options.configPath || DEFAULT_CONFIG_PATH,
     runtimeOptions: {
       preferredIp: runtimeConfig.preferredIp,
-      hostnameStrategy: runtimeConfig.hostnameStrategy
+      hostnameStrategy: domainContext.decision.strategy
     },
     ssl: {
       cert: certInfo.cert,
@@ -376,7 +450,7 @@ async function startCommand(args) {
   proxy.setRuntimeState({
     ready: false,
     ip: ipResult.ip,
-    hostnameStrategy: runtimeConfig.hostnameStrategy
+    hostnameStrategy: domainContext.decision.strategy
   });
   proxy.setCertState({
     mode: certInfo.mode || 'unknown',
@@ -429,6 +503,14 @@ async function startCommand(args) {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+
+  if (process.env.DEVGATE_TEST_ONCE === '1') {
+    return {
+      exitCode: 0,
+      strategy: domainContext.decision.strategy,
+      fallback: domainContext.decision.fallback
+    };
+  }
 
   console.log('');
   console.log('Server is running. Press Ctrl+C to stop.');
@@ -503,10 +585,12 @@ async function printHostsCommand(args) {
     throw new Error('Could not detect local IP address');
   }
 
-  const hostnames = buildHostnames(runtimeConfig, { ip: ipResult.ip });
+  const domainContext = await resolveDomainContext(runtimeConfig, options);
+  const hostnames = buildHostnames(runtimeConfig, { ip: ipResult.ip, strategy: domainContext.decision.strategy });
 
   console.log('Generated hostnames:');
   console.log('');
+  console.log(`  Strategy: ${domainContext.decision.strategy}`);
   
   if (runtimeConfig.dashboardEnabled) {
     console.log(`  Dashboard: https://${hostnames.dashboard.hostname}`);
@@ -547,6 +631,25 @@ async function doctorCommand(args) {
     console.log('  Warning: Node.js 18+ recommended');
   } else {
     console.log('  OK');
+  }
+  console.log('');
+
+  console.log('Domain resolver:');
+  try {
+    const { runtimeConfig } = await prepareConfig(options);
+    const domainContext = await resolveDomainContext(runtimeConfig, options);
+    console.log(`  Requested mode: ${domainContext.mode}`);
+    console.log(`  Effective strategy: ${domainContext.decision.strategy}`);
+    console.log(`  Fallback active: ${domainContext.decision.fallback ? 'yes' : 'no'}`);
+    console.log(`  Provider: ${domainContext.domainStatus.provider}`);
+    console.log(`  Status: ${domainContext.domainStatus.status}`);
+    console.log(`  Code: ${domainContext.domainStatus.code}`);
+    if (domainContext.decision.fallback) {
+      console.log('  Tip: Run "sudo devgate domain setup"');
+    }
+    console.log('  OK');
+  } catch (err) {
+    console.log(`  Error: ${err.message}`);
   }
   console.log('');
 
@@ -667,8 +770,10 @@ async function doctorCommand(args) {
   if (ipResult) {
     try {
       const { runtimeConfig } = await prepareConfig(options);
-      const hostnames = buildHostnames(runtimeConfig, { ip: ipResult.ip });
+      const domainContext = await resolveDomainContext(runtimeConfig, options);
+      const hostnames = buildHostnames(runtimeConfig, { ip: ipResult.ip, strategy: domainContext.decision.strategy });
       console.log('Hostnames:');
+      console.log(`  Strategy: ${domainContext.decision.strategy}`);
       if (runtimeConfig.dashboardEnabled) {
         console.log(`  Dashboard: https://${hostnames.dashboard.hostname}`);
       }
@@ -727,6 +832,54 @@ async function installMkcertCommand(args) {
   return { exitCode: result.success ? 0 : 1 };
 }
 
+async function domainCommand(args) {
+  const subcommand = args[0];
+  if (!subcommand || subcommand === '--help' || subcommand === '-h') {
+    printCommandHelp('domain');
+    return { exitCode: 0 };
+  }
+
+  if (!['status', 'setup', 'teardown'].includes(subcommand)) {
+    console.error(`Unknown domain subcommand: ${subcommand}`);
+    console.error("Run 'devgate domain --help' for usage information.");
+    return { exitCode: 1 };
+  }
+
+  if (subcommand === 'status') {
+    const status = await getDomainStatus();
+    console.log('Domain resolver status:');
+    console.log(`  Platform: ${status.platform}`);
+    console.log(`  Provider: ${status.provider}`);
+    console.log(`  Status: ${status.status}`);
+    console.log(`  Code: ${status.code}`);
+    if (status.message) {
+      console.log(`  Message: ${status.message}`);
+    }
+    if (status.remediation) {
+      console.log(`  Remediation: ${status.remediation}`);
+    }
+    return { exitCode: 0 };
+  }
+
+  if (subcommand === 'setup') {
+    const status = await setupDomainResolver();
+    console.log('Domain setup result:');
+    console.log(`  Status: ${status.status}`);
+    console.log(`  Code: ${status.code}`);
+    if (status.message) console.log(`  Message: ${status.message}`);
+    if (status.remediation) console.log(`  Remediation: ${status.remediation}`);
+    return { exitCode: status.status === 'error' ? 1 : 0 };
+  }
+
+  const status = await teardownDomainResolver();
+  console.log('Domain teardown result:');
+  console.log(`  Status: ${status.status}`);
+  console.log(`  Code: ${status.code}`);
+  if (status.message) console.log(`  Message: ${status.message}`);
+  if (status.remediation) console.log(`  Remediation: ${status.remediation}`);
+  return { exitCode: status.status === 'error' ? 1 : 0 };
+}
+
 async function run(args = process.argv.slice(2)) {
   const command = args[0];
 
@@ -746,7 +899,8 @@ async function run(args = process.argv.slice(2)) {
     'print-config': printConfigCommand,
     'print-hosts': printHostsCommand,
     'doctor': doctorCommand,
-    'install-mkcert': installMkcertCommand
+    'install-mkcert': installMkcertCommand,
+    'domain': domainCommand
   };
 
   if (command.startsWith('--configure') || command === '-configure') {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CertManager } from '../../cert/index.js';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -67,6 +67,16 @@ describe('CertManager', () => {
       
       const dirExists = await fs.access(testDir).then(() => true).catch(() => false);
       expect(dirExists).toBe(true);
+    });
+
+    it('includes .devgate hostnames in certificate generation host list', async () => {
+      const generateSpy = vi.spyOn(manager, '_generateSelfSigned').mockResolvedValue(true);
+      vi.spyOn(manager, '_areCertificatesValid').mockResolvedValue(false);
+      vi.spyOn(manager, 'checkMkcert').mockResolvedValue(false);
+
+      await manager.ensureCertificates(['app.devgate', 'dev.devgate']);
+
+      expect(generateSpy).toHaveBeenCalledWith(expect.arrayContaining(['app.devgate', 'dev.devgate']));
     });
   });
 

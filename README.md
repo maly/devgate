@@ -1,6 +1,6 @@
 # devgate
 
-A local HTTPS reverse proxy tool for development that uses sslip.io for automatic hostname resolution. Access your local development servers through meaningful hostnames without modifying your hosts file.
+A local HTTPS reverse proxy tool for development. On macOS/Linux it can use native `.devgate` hostnames via local resolver setup, with automatic fallback to `sslip` when resolver setup is missing.
 
 ## Installation
 
@@ -57,6 +57,20 @@ https://web.192-168-1-100.sslip.io
 https://dev.192-168-1-100.sslip.io  (dashboard)
 ```
 
+Optional on macOS/Linux:
+
+```bash
+sudo devgate domain setup
+```
+
+When resolver setup is ready, hostnames become:
+
+```
+https://api.devgate
+https://web.devgate
+https://dev.devgate
+```
+
 ## How sslip.io Works
 
 devgate uses [sslip.io](https://sslip.io), a DNS service that resolves hostnames containing IP addresses. When you access a URL like `https://api.192-168-1-100.sslip.io`, sslip.io extracts the IP address from the hostname and resolves to that IP directly.
@@ -80,6 +94,7 @@ Create a `devgate.json` file in your project root. Here's a complete example:
   "httpsPort": 443,
   "httpRedirectPort": 80,
   "dashboardAlias": "dev",
+  "domainMode": "auto",
   "hostnameStrategy": "sslip",
   "preferredIp": null,
   "certDir": null,
@@ -120,6 +135,7 @@ Create a `devgate.json` file in your project root. Here's a complete example:
 | `httpsPort` | number | 443 | HTTPS port for the proxy |
 | `httpRedirectPort` | number | 80 | HTTP port for redirecting to HTTPS |
 | `dashboardAlias` | string | "dev" | Alias for the dashboard |
+| `domainMode` | string | "auto" | Domain mode: `auto`, `sslip`, `devgate` |
 | `hostnameStrategy` | string | "sslip" | DNS strategy: "sslip", "nip", or "custom" |
 | `preferredIp` | string | null | Override auto-detected IP |
 | `certDir` | string | null | Custom certificate directory |
@@ -163,6 +179,7 @@ Options:
 - `--verbose, -v` - Enable verbose output
 - `--no-dashboard` - Disable dashboard
 - `--self-signed-fallback` - Allow self-signed certificates
+- `--domain-mode <mode>` - Domain mode override (`auto`, `sslip`, `devgate`)
 
 ### validate
 
@@ -218,6 +235,31 @@ This checks:
 - Port availability
 - Certificate cache
 - Generated hostnames
+- Domain resolver status and fallback strategy
+
+### domain
+
+Manage `.devgate` resolver integration:
+
+```bash
+devgate domain status
+sudo devgate domain setup
+sudo devgate domain teardown
+```
+
+`start` behavior:
+- macOS/Linux: checks resolver status first.
+- If resolver is missing/unsupported/error, prints a strong warning with `sudo devgate domain setup` and automatically uses `sslip`.
+- Windows: always uses `sslip`.
+
+Decision table:
+
+| Platform | Mode | Resolver status | Effective strategy | Fallback |
+|---|---|---|---|---|
+| Windows | any | any | `sslip` | no |
+| macOS/Linux | `sslip` | any | `sslip` | no |
+| macOS/Linux | `devgate` or `auto` | `ready` | `devgate` | no |
+| macOS/Linux | `devgate` or `auto` | `missing`/`unsupported`/`error` | `sslip` | yes |
 
 ## Hot Reload Lifecycle
 

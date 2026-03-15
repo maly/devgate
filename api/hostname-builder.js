@@ -19,8 +19,9 @@ function ipToDashes(ip) {
 /**
  * Builds hostnames for routes and dashboard using sslip.io
  * @param {Object} config - Configuration object with routes array and dashboardAlias
- * @param {Object} runtimeInfo - Runtime info containing local IP
+ * @param {Object} runtimeInfo - Runtime info containing local IP and selected strategy
  * @param {string} runtimeInfo.ip - Local IP address
+ * @param {string} runtimeInfo.strategy - Hostname strategy (`sslip` or `devgate`)
  * @returns {Object} Object with routes and dashboard hostnames
  */
 function buildHostnames(config, runtimeInfo) {
@@ -33,17 +34,17 @@ function buildHostnames(config, runtimeInfo) {
   }
 
   const { routes = [], dashboardAlias = 'dev' } = config;
-  const ipWithDashes = ipToDashes(runtimeInfo.ip);
+  const strategy = runtimeInfo.strategy || 'sslip';
 
   const routeHostnames = routes.map(route => ({
     alias: route.alias,
-    hostname: `${route.alias}.${ipWithDashes}.sslip.io`,
+    hostname: strategy === 'devgate' ? `${route.alias}.devgate` : `${route.alias}.${ipToDashes(runtimeInfo.ip)}.sslip.io`,
     target: route.target
   }));
 
   const dashboardHostname = {
     alias: dashboardAlias,
-    hostname: `${dashboardAlias}.${ipWithDashes}.sslip.io`
+    hostname: strategy === 'devgate' ? `${dashboardAlias}.devgate` : `${dashboardAlias}.${ipToDashes(runtimeInfo.ip)}.sslip.io`
   };
 
   return {

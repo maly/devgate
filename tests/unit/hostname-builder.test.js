@@ -129,5 +129,20 @@ describe('Hostname Builder', () => {
 
       expect(result.dashboard.alias).toBe('dev');
     });
+
+    it('should build .devgate hostnames when strategy is devgate', () => {
+      const config = {
+        routes: [
+          { alias: 'app', target: { protocol: 'http', host: 'localhost', port: 3000 } }
+        ],
+        dashboardAlias: 'dev'
+      };
+      const runtimeInfo = { ip: '192.168.1.1', strategy: 'devgate' };
+
+      const result = buildHostnames(config, runtimeInfo);
+
+      expect(result.routes[0].hostname).toBe('app.devgate');
+      expect(result.dashboard.hostname).toBe('dev.devgate');
+    });
   });
 });

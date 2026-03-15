@@ -108,6 +108,25 @@ This is expected for self-signed certificates. The connection is still encrypted
 
 ## DNS Resolution Issues
 
+### Native `.devgate` not working on macOS/Linux
+
+If `devgate start` prints resolver warning and uses `sslip`, resolver setup is missing or inactive.
+
+Run:
+
+```bash
+devgate domain status
+sudo devgate domain setup
+```
+
+Then restart:
+
+```bash
+devgate start
+```
+
+If setup is unavailable on your distro/environment, devgate keeps working with automatic `sslip` fallback.
+
 ### sslip.io not resolving
 
 1. **Check your internet connection** - sslip.io requires external DNS

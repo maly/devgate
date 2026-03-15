@@ -41,6 +41,7 @@ routes:
 | `httpsPort` | number | 443 | HTTPS port for the proxy server |
 | `httpRedirectPort` | number | 80 | HTTP port for redirecting to HTTPS. Set to `null` to disable |
 | `dashboardAlias` | string | "dev" | Alias for the dashboard endpoint |
+| `domainMode` | string | "auto" | Domain selection mode: `auto`, `sslip`, `devgate` |
 | `hostnameStrategy` | string | "sslip" | DNS strategy: "sslip", "nip", or "custom" |
 | `preferredIp` | string | null | Override auto-detected local IP |
 | `certDir` | string | null | Custom certificate directory (default: `~/.devgate/certs`) |
@@ -164,6 +165,7 @@ Available template variables:
   "httpsPort": 8443,
   "httpRedirectPort": 8080,
   "dashboardAlias": "dev",
+  "domainMode": "auto",
   "hostnameStrategy": "sslip",
   "preferredIp": null,
   "certDir": null,
@@ -224,6 +226,23 @@ This checks:
 - DNS-safe alias names
 - Required fields
 - Protocol values
+
+## Native `.devgate` Mode
+
+On macOS/Linux you can configure local resolver support:
+
+```bash
+sudo devgate domain setup
+```
+
+Then with `domainMode: "auto"` or `"devgate"`, hostnames resolve as:
+- `app.devgate`
+- `ui.devgate`
+- `dev.devgate`
+
+If resolver setup is missing, `start` prints a warning and automatically falls back to `sslip` hostnames. It does not exit with an error.
+
+Windows does not support native `.devgate`; it always uses `sslip`.
 
 ## Hot Reload Lifecycle
 

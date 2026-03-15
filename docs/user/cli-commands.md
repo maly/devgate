@@ -11,6 +11,7 @@ Complete reference for all devgate CLI commands.
 | `print-config` | Print effective configuration |
 | `print-hosts` | Print generated hostnames |
 | `doctor` | Run diagnostics |
+| `domain` | Manage `.devgate` resolver setup |
 
 ## start
 
@@ -33,6 +34,7 @@ devgate start [options]
 | `--verbose` | `-v` | Enable verbose output | false |
 | `--no-dashboard` | | Disable dashboard | enabled |
 | `--self-signed-fallback` | | Allow self-signed certificates | false |
+| `--domain-mode <mode>` | | Domain mode override (`auto`, `sslip`, `devgate`) | from config (`auto`) |
 
 ### Examples
 
@@ -160,6 +162,7 @@ devgate print-hosts [options]
 | Option | Alias | Description | Default |
 |--------|-------|-------------|---------|
 | `--config <path>` | `-c` | Path to config file | `devgate.json` |
+| `--domain-mode <mode>` | | Domain mode override (`auto`, `sslip`, `devgate`) | from config (`auto`) |
 
 ### Examples
 
@@ -195,6 +198,7 @@ devgate doctor [options]
 | Option | Alias | Description | Default |
 |--------|-------|-------------|---------|
 | `--config <path>` | `-c` | Path to config file | `devgate.json` |
+| `--domain-mode <mode>` | | Domain mode override (`auto`, `sslip`, `devgate`) | from config (`auto`) |
 | `--verbose` | `-v` | Include detailed output | false |
 
 ### Examples
@@ -219,6 +223,40 @@ The doctor command checks:
 6. **Routes**: Configured route definitions
 7. **Certificate cache**: Cached certificates status
 8. **Hostnames**: Generated hostname list
+9. **Domain resolver**: Provider, status code, effective strategy, fallback indicator
+
+## domain
+
+Manage native `.devgate` resolver integration on macOS/Linux.
+
+```bash
+devgate domain <status|setup|teardown>
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `status` | Prints resolver provider, status and code |
+| `setup` | Configures resolver for `.devgate` (typically requires `sudo`) |
+| `teardown` | Removes resolver setup (typically requires `sudo`) |
+
+### Examples
+
+```bash
+devgate domain status
+sudo devgate domain setup
+sudo devgate domain teardown
+```
+
+### Strategy Resolution
+
+| Platform | Mode | Resolver status | Strategy | Fallback |
+|---|---|---|---|---|
+| Windows | any | any | `sslip` | no |
+| macOS/Linux | `sslip` | any | `sslip` | no |
+| macOS/Linux | `devgate`/`auto` | `ready` | `devgate` | no |
+| macOS/Linux | `devgate`/`auto` | `missing`/`unsupported`/`error` | `sslip` | yes |
 
 ### Output
 

@@ -93,6 +93,29 @@ describe('validateConfig', () => {
       expect(result.valid).toBe(true);
     });
 
+    describe('domainMode validation', () => {
+      it('should accept auto mode', () => {
+        const result = validateConfig({ domainMode: 'auto', routes: [] });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should accept sslip mode', () => {
+        const result = validateConfig({ domainMode: 'sslip', routes: [] });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should accept devgate mode', () => {
+        const result = validateConfig({ domainMode: 'devgate', routes: [] });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject invalid domain mode', () => {
+        const result = validateConfig({ domainMode: 'bad-mode', routes: [] });
+        expect(result.valid).toBe(false);
+        expect(result.errors[0]).toContain('domainMode must be one of');
+      });
+    });
+
     it('should accept nip strategy', () => {
       const result = validateConfig({ hostnameStrategy: 'nip', routes: [] });
       expect(result.valid).toBe(true);
@@ -325,6 +348,13 @@ describe('validateConfig', () => {
       expect(result.httpsPort).toBe(9443);
     });
 
+    it('should apply domainMode from options', () => {
+      const config = { domainMode: 'auto', routes: [] };
+      const options = { domainMode: 'devgate' };
+      const result = resolveRuntimeConfig(config, options);
+      expect(result.domainMode).toBe('devgate');
+    });
+
     it('should merge routes from config and options', () => {
       const config = {
         routes: [{ alias: 'app1', target: { protocol: 'http', host: 'localhost', port: 3000 } }]
@@ -406,6 +436,7 @@ describe('validateConfig', () => {
       expect(defaults.httpsPort).toBe(443);
       expect(defaults.httpRedirectPort).toBe(80);
       expect(defaults.dashboardAlias).toBe('dev');
+      expect(defaults.domainMode).toBe('auto');
       expect(defaults.hostnameStrategy).toBe('sslip');
       expect(defaults.routes).toEqual([]);
     });
