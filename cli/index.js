@@ -35,8 +35,9 @@ function buildRuntimeRoutesSnapshot(runtimeConfig, hostnames, healthMap = new Ma
 export function syncHealthToProxy(proxyInstance, healthChecker, runtimeConfig, hostnames) {
   const healthMap = healthChecker.getAllHealthStatus();
   const values = Array.from(healthMap.values());
+  const hasHealthcheckedRoutes = runtimeConfig.routes.some((r) => r.healthcheck);
   const summary = values.length === 0
-    ? 'unknown'
+    ? (hasHealthcheckedRoutes ? 'unknown' : 'healthy')
     : values.every((s) => s.status === 'healthy')
       ? 'healthy'
       : 'degraded';
