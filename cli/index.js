@@ -892,17 +892,34 @@ async function doctorCommand(args) {
   }
   console.log('');
 
+  let doctorRuntimeConfig = null;
+  let doctorDomainContext = null;
+
+  console.log('Configuration:');
+  try {
+    const prepared = await prepareConfig(options);
+    doctorRuntimeConfig = prepared.runtimeConfig;
+    const configPath = options.configPath || DEFAULT_CONFIG_PATH;
+    console.log(`  Config file: ${configPath} (${options.configPath ? 'provided' : 'using defaults'})`);
+    console.log(`  OK`);
+    console.log('');
+  } catch (err) {
+    console.log(`  Error: ${err.message}`);
+    hasErrors = true;
+    console.log('');
+  }
+
   console.log('Domain resolver:');
   try {
-    const { runtimeConfig } = await prepareConfig(options);
-    const domainContext = await resolveDomainContext(runtimeConfig, options);
-    console.log(`  Requested mode: ${domainContext.mode}`);
-    console.log(`  Effective strategy: ${domainContext.decision.strategy}`);
-    console.log(`  Fallback active: ${domainContext.decision.fallback ? 'yes' : 'no'}`);
-    console.log(`  Provider: ${domainContext.domainStatus.provider}`);
-    console.log(`  Status: ${domainContext.domainStatus.status}`);
-    console.log(`  Code: ${domainContext.domainStatus.code}`);
-    if (domainContext.decision.fallback) {
+    if (!doctorRuntimeConfig) throw new Error('Config unavailable');
+    doctorDomainContext = await resolveDomainContext(doctorRuntimeConfig, options);
+    console.log(`  Requested mode: ${doctorDomainContext.mode}`);
+    console.log(`  Effective strategy: ${doctorDomainContext.decision.strategy}`);
+    console.log(`  Fallback active: ${doctorDomainContext.decision.fallback ? 'yes' : 'no'}`);
+    console.log(`  Provider: ${doctorDomainContext.domainStatus.provider}`);
+    console.log(`  Status: ${doctorDomainContext.domainStatus.status}`);
+    console.log(`  Code: ${doctorDomainContext.domainStatus.code}`);
+    if (doctorDomainContext.decision.fallback) {
       console.log('  Tip: Run "sudo devgate domain setup"');
     }
     console.log('  OK');
@@ -923,19 +940,6 @@ async function doctorCommand(args) {
     console.log('  Tip: Run "devgate install-mkcert" to install automatically');
   }
   console.log('');
-
-  console.log('Configuration:');
-  try {
-    const { runtimeConfig } = await prepareConfig(options);
-    const configPath = options.configPath || DEFAULT_CONFIG_PATH;
-    console.log(`  Config file: ${configPath} (${options.configPath ? 'provided' : 'using defaults'})`);
-    console.log(`  OK`);
-    console.log('');
-  } catch (err) {
-    console.log(`  Error: ${err.message}`);
-    hasErrors = true;
-    console.log('');
-  }
 
   console.log('Network:');
   const ipResult = detectLocalIp({ preferredIp: options.ip });
@@ -977,13 +981,12 @@ async function doctorCommand(args) {
   console.log('  OK');
   console.log('');
 
-  try {
-    const { runtimeConfig } = await prepareConfig(options);
+  if (doctorRuntimeConfig) {
     console.log('Routes:');
-    if (runtimeConfig.routes.length === 0) {
+    if (doctorRuntimeConfig.routes.length === 0) {
       console.log('  No routes configured');
     } else {
-      runtimeConfig.routes.forEach(route => {
+      doctorRuntimeConfig.routes.forEach(route => {
         console.log(`  - ${route.alias} -> ${route.target.protocol}://${route.target.host}:${route.target.port}`);
         if (route.healthcheck) {
           console.log(`    Healthcheck: ${route.healthcheck}`);
@@ -994,12 +997,12 @@ async function doctorCommand(args) {
     console.log('');
 
     console.log('Certificate cache:');
-    const certDir = runtimeConfig.certDir || certManager.certDir;
+    const certDir = doctorRuntimeConfig.certDir || certManager.certDir;
     const certPath = `${certDir}/devgate.pem`;
     const keyPath = `${certDir}/devgate.key`;
-    
+
     console.log(`  Certificate directory: ${certDir}`);
-    
+
     if (existsSync(certPath) && existsSync(keyPath)) {
       console.log('  Cached certificates: Yes');
       try {
@@ -1022,18 +1025,15 @@ async function doctorCommand(args) {
     }
     console.log('  OK');
     console.log('');
-  } catch (err) {
-    hasErrors = true;
   }
 
-  if (ipResult) {
+  if (ipResult && doctorRuntimeConfig) {
     try {
-      const { runtimeConfig } = await prepareConfig(options);
-      const domainContext = await resolveDomainContext(runtimeConfig, options);
-      const hostnames = buildHostnames(runtimeConfig, { ip: ipResult.ip, strategy: domainContext.decision.strategy });
+      const domainContext = doctorDomainContext || await resolveDomainContext(doctorRuntimeConfig, options);
+      const hostnames = buildHostnames(doctorRuntimeConfig, { ip: ipResult.ip, strategy: domainContext.decision.strategy });
       console.log('Hostnames:');
       console.log(`  Strategy: ${domainContext.decision.strategy}`);
-      if (runtimeConfig.dashboardEnabled) {
+      if (doctorRuntimeConfig.dashboardEnabled) {
         console.log(`  Dashboard: https://${hostnames.dashboard.hostname}`);
       }
       hostnames.routes.forEach(route => {

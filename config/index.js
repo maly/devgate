@@ -198,15 +198,11 @@ export function resolveRuntimeConfig(config, options = {}) {
     });
   }
 
-  if (options.httpsPort !== undefined) runtimeConfig.httpsPort = options.httpsPort;
-  if (options.httpRedirectPort !== undefined) runtimeConfig.httpRedirectPort = options.httpRedirectPort;
-  if (options.dashboardAlias !== undefined) runtimeConfig.dashboardAlias = options.dashboardAlias;
-  if (options.domainMode !== undefined) runtimeConfig.domainMode = options.domainMode;
-  if (options.hostnameStrategy !== undefined) runtimeConfig.hostnameStrategy = options.hostnameStrategy;
-  if (options.preferredIp !== undefined) runtimeConfig.preferredIp = options.preferredIp;
-  if (options.certDir !== undefined) runtimeConfig.certDir = options.certDir;
-  if (options.dashboardEnabled !== undefined) runtimeConfig.dashboardEnabled = options.dashboardEnabled;
-  if (options.autoOpenBrowser !== undefined) runtimeConfig.autoOpenBrowser = options.autoOpenBrowser;
+  const scalarKeys = ['httpsPort', 'httpRedirectPort', 'dashboardAlias', 'domainMode',
+    'hostnameStrategy', 'preferredIp', 'certDir', 'dashboardEnabled', 'autoOpenBrowser'];
+  for (const key of scalarKeys) {
+    if (options[key] !== undefined) runtimeConfig[key] = options[key];
+  }
 
   if (options.routes) {
     const configRoutesMap = new Map((runtimeConfig.routes || []).map(r => [r.alias, r]));
