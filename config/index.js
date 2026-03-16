@@ -4,7 +4,7 @@ import path from 'path';
 let yaml = null;
 
 try {
-  yaml = require('yaml');
+  yaml = (await import('yaml')).default;
 } catch (e) {
   // yaml will remain null if not installed
 }
