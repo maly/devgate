@@ -1,6 +1,33 @@
 import { describe, it, expect } from 'vitest';
 import { renderDashboard } from '../../dashboard/index.js';
 
+describe('legacy dashboard status rendering', () => {
+  it('renders Unhealthy for a route with status: unhealthy', () => {
+    const html = renderDashboard({
+      routes: { api: { target: 'http://localhost:3000' } },
+      health: { api: { status: 'unhealthy' } }
+    });
+    expect(html).toContain('Unhealthy');
+    expect(html).not.toContain('Healthy');
+  });
+
+  it('renders Healthy for a route with status: healthy', () => {
+    const html = renderDashboard({
+      routes: { api: { target: 'http://localhost:3000' } },
+      health: { api: { status: 'healthy' } }
+    });
+    expect(html).toContain('Healthy');
+  });
+
+  it('renders Unknown when health entry is missing', () => {
+    const html = renderDashboard({
+      routes: { api: { target: 'http://localhost:3000' } },
+      health: {}
+    });
+    expect(html).toContain('Unknown');
+  });
+});
+
 const mockState = {
   runtime: {
     ready: true,

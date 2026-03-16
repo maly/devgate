@@ -11,6 +11,7 @@ export class HealthChecker {
     this.timeout = options.timeout || 5000; // Default 5 second timeout
     this.routes = new Map(); // route alias -> health status
     this._intervals = new Map(); // route alias -> interval ID
+    this._healthcheckUrls = new Map(); // route alias -> last known healthcheck URL
   }
 
   /**
@@ -130,31 +131,23 @@ export class HealthChecker {
       }
     });
 
-    req.on('error', (err) => {
+    const markUnhealthy = (errorMessage) => {
       const currentStatus = this.routes.get(alias) || {};
-
       this.routes.set(alias, {
         ...currentStatus,
         status: 'unhealthy',
         httpStatus: null,
         lastError: new Date().toISOString(),
-        errorMessage: err.message,
+        errorMessage,
         consecutiveFailures: (currentStatus.consecutiveFailures || 0) + 1
       });
-    });
+    };
+
+    req.on('error', (err) => markUnhealthy(err.message));
 
     req.on('timeout', () => {
       req.destroy();
-      const currentStatus = this.routes.get(alias) || {};
-
-      this.routes.set(alias, {
-        ...currentStatus,
-        status: 'unhealthy',
-        httpStatus: null,
-        lastError: new Date().toISOString(),
-        errorMessage: 'Request timeout',
-        consecutiveFailures: (currentStatus.consecutiveFailures || 0) + 1
-      });
+      markUnhealthy('Request timeout');
     });
   }
 
@@ -187,21 +180,19 @@ export class HealthChecker {
     for (const alias of currentAliases) {
       if (!newAliases.has(alias)) {
         this.stopRouteHealthCheck(alias);
+        this._healthcheckUrls.delete(alias);
       }
     }
 
-    // Start health checks for new routes
+    // Start health checks for new routes or routes with changed healthcheck URL
     for (const route of routes) {
-      if (route.healthcheck && !currentAliases.has(route.alias)) {
+      if (!route.healthcheck) continue;
+      const isNew = !currentAliases.has(route.alias);
+      const urlChanged = !isNew && this._healthcheckUrls.get(route.alias) !== route.healthcheck;
+      if (isNew || urlChanged) {
         this.startRouteHealthCheck(route.alias, route);
       }
-    }
-
-    // Update existing routes that have healthcheck
-    for (const route of routes) {
-      if (route.healthcheck && currentAliases.has(route.alias)) {
-        this.startRouteHealthCheck(route.alias, route);
-      }
+      this._healthcheckUrls.set(route.alias, route.healthcheck);
     }
   }
 }

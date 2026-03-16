@@ -47,7 +47,7 @@ export function createConfigWatcher({ configPath, debounceMs = 350, onChange = a
 
     started = true;
     watcherHandle = watch(configPath, (eventType) => {
-      if (eventType !== 'change') {
+      if (eventType !== 'change' && eventType !== 'rename') {
         return;
       }
       schedule();

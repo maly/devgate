@@ -35,8 +35,9 @@ function buildRuntimeRoutesSnapshot(runtimeConfig, hostnames, healthMap = new Ma
 export function syncHealthToProxy(proxyInstance, healthChecker, runtimeConfig, hostnames) {
   const healthMap = healthChecker.getAllHealthStatus();
   const values = Array.from(healthMap.values());
+  const hasHealthcheckedRoutes = runtimeConfig.routes.some((r) => r.healthcheck);
   const summary = values.length === 0
-    ? 'unknown'
+    ? (hasHealthcheckedRoutes ? 'unknown' : 'healthy')
     : values.every((s) => s.status === 'healthy')
       ? 'healthy'
       : 'degraded';
@@ -72,9 +73,24 @@ function parseArgs(args) {
     headers: undefined,
     stripPrefix: undefined,
     chooseCleanTemplate: false,
-    confirmRecovery: false
-    ,
+    confirmRecovery: false,
     force: false
+  };
+
+  // Returns the next argument value or throws if missing
+  const nextVal = (flag, errMsg) => {
+    if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+      return args[i + 1];
+    }
+    throw new Error(errMsg);
+  };
+
+  const parsePort = (flag, value) => {
+    const n = parseInt(value, 10);
+    if (isNaN(n) || n < 1 || n > 65535) {
+      throw new Error(`${flag} must be a number between 1 and 65535`);
+    }
+    return n;
   };
 
   let i = 0;
@@ -82,236 +98,83 @@ function parseArgs(args) {
     const arg = args[i];
 
     if (arg === '--configure' || arg === '-configure') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.configPath = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--configure requires a path argument');
-      }
-      continue;
+      options.configPath = nextVal(arg, '--configure requires a path argument');
+      i += 2; continue;
     }
-
     if (arg === '--config' || arg === '-c') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.configPath = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--config requires a path argument');
-      }
-      continue;
+      options.configPath = nextVal(arg, '--config requires a path argument');
+      i += 2; continue;
     }
-
     if (arg === '--ip' || arg === '-i') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.ip = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--ip requires an IP address argument');
-      }
-      continue;
+      options.ip = nextVal(arg, '--ip requires an IP address argument');
+      i += 2; continue;
     }
-
     if (arg === '--https-port' || arg === '--https') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.httpsPort = parseInt(args[i + 1], 10);
-        if (isNaN(options.httpsPort) || options.httpsPort < 1 || options.httpsPort > 65535) {
-          throw new Error('--https-port must be a number between 1 and 65535');
-        }
-        i += 2;
-      } else {
-        throw new Error('--https-port requires a port number');
-      }
-      continue;
+      options.httpsPort = parsePort('--https-port', nextVal(arg, '--https-port requires a port number'));
+      i += 2; continue;
     }
-
     if (arg === '--http-port' || arg === '--http') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.httpPort = parseInt(args[i + 1], 10);
-        if (isNaN(options.httpPort) || options.httpPort < 1 || options.httpPort > 65535) {
-          throw new Error('--http-port must be a number between 1 and 65535');
-        }
-        i += 2;
-      } else {
-        throw new Error('--http-port requires a port number');
-      }
-      continue;
+      options.httpPort = parsePort('--http-port', nextVal(arg, '--http-port requires a port number'));
+      i += 2; continue;
     }
-
     if (arg === '--cert-dir') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.certDir = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--cert-dir requires a path argument');
-      }
-      continue;
+      options.certDir = nextVal(arg, '--cert-dir requires a path argument');
+      i += 2; continue;
     }
-
-    if (arg === '--verbose' || arg === '-v') {
-      options.verbose = true;
-      i++;
-      continue;
-    }
-
-    if (arg === '--json') {
-      options.json = true;
-      i++;
-      continue;
-    }
-
-    if (arg === '--dry-run') {
-      options.dryRun = true;
-      i++;
-      continue;
-    }
-
-    if (arg === '--non-interactive') {
-      options.nonInteractive = true;
-      i++;
-      continue;
-    }
-
     if (arg === '--add-alias') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.addAlias = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--add-alias requires an alias');
-      }
-      continue;
+      options.addAlias = nextVal(arg, '--add-alias requires an alias');
+      i += 2; continue;
     }
-
     if (arg === '--edit-alias') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.editAlias = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--edit-alias requires an alias');
-      }
-      continue;
+      options.editAlias = nextVal(arg, '--edit-alias requires an alias');
+      i += 2; continue;
     }
-
     if (arg === '--remove-alias') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.removeAlias = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--remove-alias requires an alias');
-      }
-      continue;
+      options.removeAlias = nextVal(arg, '--remove-alias requires an alias');
+      i += 2; continue;
     }
-
     if (arg === '--protocol') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.protocol = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--protocol requires a value (http|https)');
-      }
-      continue;
+      options.protocol = nextVal(arg, '--protocol requires a value (http|https)');
+      i += 2; continue;
     }
-
     if (arg === '--host') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.host = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--host requires a value');
-      }
-      continue;
+      options.host = nextVal(arg, '--host requires a value');
+      i += 2; continue;
     }
-
     if (arg === '--port') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.port = parseInt(args[i + 1], 10);
-        if (isNaN(options.port) || options.port < 1 || options.port > 65535) {
-          throw new Error('--port must be a number between 1 and 65535');
-        }
-        i += 2;
-      } else {
-        throw new Error('--port requires a value');
-      }
-      continue;
+      options.port = parsePort('--port', nextVal(arg, '--port requires a value'));
+      i += 2; continue;
     }
-
     if (arg === '--healthcheck') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.healthcheck = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--healthcheck requires a value');
-      }
-      continue;
+      options.healthcheck = nextVal(arg, '--healthcheck requires a value');
+      i += 2; continue;
     }
-
     if (arg === '--headers') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.headers = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--headers requires a value');
-      }
-      continue;
+      options.headers = nextVal(arg, '--headers requires a value');
+      i += 2; continue;
     }
-
     if (arg === '--strip-prefix') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.stripPrefix = args[i + 1];
-        i += 2;
-      } else {
-        throw new Error('--strip-prefix requires a value');
-      }
-      continue;
+      options.stripPrefix = nextVal(arg, '--strip-prefix requires a value');
+      i += 2; continue;
     }
-
-    if (arg === '--choose-clean-template') {
-      options.chooseCleanTemplate = true;
-      i++;
-      continue;
-    }
-
-    if (arg === '--confirm-recovery' || arg === '--yes') {
-      options.confirmRecovery = true;
-      i++;
-      continue;
-    }
-
-    if (arg === '--no-dashboard') {
-      options.dashboardEnabled = false;
-      i++;
-      continue;
-    }
-
-    if (arg === '--self-signed-fallback' || arg === '--self-signed') {
-      options.selfSignedFallback = true;
-      i++;
-      continue;
-    }
-
     if (arg === '--domain-mode') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        options.domainMode = args[i + 1];
-        if (!['auto', 'sslip', 'devgate'].includes(options.domainMode)) {
-          throw new Error('--domain-mode must be one of: auto, sslip, devgate');
-        }
-        i += 2;
-      } else {
-        throw new Error('--domain-mode requires a mode (auto|sslip|devgate)');
+      options.domainMode = nextVal(arg, '--domain-mode requires a mode (auto|sslip|devgate)');
+      if (!['auto', 'sslip', 'devgate'].includes(options.domainMode)) {
+        throw new Error('--domain-mode must be one of: auto, sslip, devgate');
       }
-      continue;
+      i += 2; continue;
     }
 
-    if (arg === '--help' || arg === '-h') {
-      options.help = true;
-      i++;
-      continue;
-    }
-
-    if (arg === '--force') {
-      options.force = true;
-      i++;
-      continue;
-    }
+    if (arg === '--verbose' || arg === '-v') { options.verbose = true; i++; continue; }
+    if (arg === '--json') { options.json = true; i++; continue; }
+    if (arg === '--dry-run') { options.dryRun = true; i++; continue; }
+    if (arg === '--non-interactive') { options.nonInteractive = true; i++; continue; }
+    if (arg === '--choose-clean-template') { options.chooseCleanTemplate = true; i++; continue; }
+    if (arg === '--confirm-recovery' || arg === '--yes') { options.confirmRecovery = true; i++; continue; }
+    if (arg === '--no-dashboard') { options.dashboardEnabled = false; i++; continue; }
+    if (arg === '--self-signed-fallback' || arg === '--self-signed') { options.selfSignedFallback = true; i++; continue; }
+    if (arg === '--help' || arg === '-h') { options.help = true; i++; continue; }
+    if (arg === '--force') { options.force = true; i++; continue; }
 
     throw new Error(`Unknown argument: ${arg}`);
   }
@@ -891,17 +754,34 @@ async function doctorCommand(args) {
   }
   console.log('');
 
+  let doctorRuntimeConfig = null;
+  let doctorDomainContext = null;
+
+  console.log('Configuration:');
+  try {
+    const prepared = await prepareConfig(options);
+    doctorRuntimeConfig = prepared.runtimeConfig;
+    const configPath = options.configPath || DEFAULT_CONFIG_PATH;
+    console.log(`  Config file: ${configPath} (${options.configPath ? 'provided' : 'using defaults'})`);
+    console.log(`  OK`);
+    console.log('');
+  } catch (err) {
+    console.log(`  Error: ${err.message}`);
+    hasErrors = true;
+    console.log('');
+  }
+
   console.log('Domain resolver:');
   try {
-    const { runtimeConfig } = await prepareConfig(options);
-    const domainContext = await resolveDomainContext(runtimeConfig, options);
-    console.log(`  Requested mode: ${domainContext.mode}`);
-    console.log(`  Effective strategy: ${domainContext.decision.strategy}`);
-    console.log(`  Fallback active: ${domainContext.decision.fallback ? 'yes' : 'no'}`);
-    console.log(`  Provider: ${domainContext.domainStatus.provider}`);
-    console.log(`  Status: ${domainContext.domainStatus.status}`);
-    console.log(`  Code: ${domainContext.domainStatus.code}`);
-    if (domainContext.decision.fallback) {
+    if (!doctorRuntimeConfig) throw new Error('Config unavailable');
+    doctorDomainContext = await resolveDomainContext(doctorRuntimeConfig, options);
+    console.log(`  Requested mode: ${doctorDomainContext.mode}`);
+    console.log(`  Effective strategy: ${doctorDomainContext.decision.strategy}`);
+    console.log(`  Fallback active: ${doctorDomainContext.decision.fallback ? 'yes' : 'no'}`);
+    console.log(`  Provider: ${doctorDomainContext.domainStatus.provider}`);
+    console.log(`  Status: ${doctorDomainContext.domainStatus.status}`);
+    console.log(`  Code: ${doctorDomainContext.domainStatus.code}`);
+    if (doctorDomainContext.decision.fallback) {
       console.log('  Tip: Run "sudo devgate domain setup"');
     }
     console.log('  OK');
@@ -922,19 +802,6 @@ async function doctorCommand(args) {
     console.log('  Tip: Run "devgate install-mkcert" to install automatically');
   }
   console.log('');
-
-  console.log('Configuration:');
-  try {
-    const { runtimeConfig } = await prepareConfig(options);
-    const configPath = options.configPath || DEFAULT_CONFIG_PATH;
-    console.log(`  Config file: ${configPath} (${options.configPath ? 'provided' : 'using defaults'})`);
-    console.log(`  OK`);
-    console.log('');
-  } catch (err) {
-    console.log(`  Error: ${err.message}`);
-    hasErrors = true;
-    console.log('');
-  }
 
   console.log('Network:');
   const ipResult = detectLocalIp({ preferredIp: options.ip });
@@ -965,24 +832,29 @@ async function doctorCommand(args) {
   };
 
   const portsToCheck = [80, 443, 8080, 8443];
+  let anyPortInUse = false;
   for (const port of portsToCheck) {
     const result = await testPort(port);
     if (result.available) {
       console.log(`  Port ${port}: Available`);
     } else {
       console.log(`  Port ${port}: In use (${result.error})`);
+      anyPortInUse = true;
     }
   }
-  console.log('  OK');
+  if (anyPortInUse) {
+    hasErrors = true;
+  } else {
+    console.log('  OK');
+  }
   console.log('');
 
-  try {
-    const { runtimeConfig } = await prepareConfig(options);
+  if (doctorRuntimeConfig) {
     console.log('Routes:');
-    if (runtimeConfig.routes.length === 0) {
+    if (doctorRuntimeConfig.routes.length === 0) {
       console.log('  No routes configured');
     } else {
-      runtimeConfig.routes.forEach(route => {
+      doctorRuntimeConfig.routes.forEach(route => {
         console.log(`  - ${route.alias} -> ${route.target.protocol}://${route.target.host}:${route.target.port}`);
         if (route.healthcheck) {
           console.log(`    Healthcheck: ${route.healthcheck}`);
@@ -993,12 +865,12 @@ async function doctorCommand(args) {
     console.log('');
 
     console.log('Certificate cache:');
-    const certDir = runtimeConfig.certDir || certManager.certDir;
+    const certDir = doctorRuntimeConfig.certDir || certManager.certDir;
     const certPath = `${certDir}/devgate.pem`;
     const keyPath = `${certDir}/devgate.key`;
-    
+
     console.log(`  Certificate directory: ${certDir}`);
-    
+
     if (existsSync(certPath) && existsSync(keyPath)) {
       console.log('  Cached certificates: Yes');
       try {
@@ -1021,17 +893,15 @@ async function doctorCommand(args) {
     }
     console.log('  OK');
     console.log('');
-  } catch (err) {
   }
 
-  if (ipResult) {
+  if (ipResult && doctorRuntimeConfig) {
     try {
-      const { runtimeConfig } = await prepareConfig(options);
-      const domainContext = await resolveDomainContext(runtimeConfig, options);
-      const hostnames = buildHostnames(runtimeConfig, { ip: ipResult.ip, strategy: domainContext.decision.strategy });
+      const domainContext = doctorDomainContext || await resolveDomainContext(doctorRuntimeConfig, options);
+      const hostnames = buildHostnames(doctorRuntimeConfig, { ip: ipResult.ip, strategy: domainContext.decision.strategy });
       console.log('Hostnames:');
       console.log(`  Strategy: ${domainContext.decision.strategy}`);
-      if (runtimeConfig.dashboardEnabled) {
+      if (doctorRuntimeConfig.dashboardEnabled) {
         console.log(`  Dashboard: https://${hostnames.dashboard.hostname}`);
       }
       hostnames.routes.forEach(route => {

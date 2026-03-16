@@ -267,10 +267,13 @@ export function createProxy(options = {}) {
     });
 
     wsProxy.on('error', () => {
+      wsProxy.close();
       socket.destroy();
     });
 
-    wsProxy.ws(req, socket, head);
+    wsProxy.ws(req, socket, head, () => {
+      wsProxy.close();
+    });
   };
 
   const start = () => {
@@ -300,7 +303,7 @@ export function createProxy(options = {}) {
         httpsServer.on('upgrade', onUpgrade);
         httpsServer.on('error', reject);
 
-        httpsServer.listen(port, () => {
+        const onHttpsListening = () => {
           isRunning = true;
           runtimeState.updateRuntime({ isRunning: true });
 
@@ -308,21 +311,28 @@ export function createProxy(options = {}) {
             configWatcher.start();
           }
 
-          resolve();
-        });
-
-        if (defaultPort && defaultPort !== port) {
-          redirectServer = http.createServer((req, res) => {
-            const host = req.headers.host;
-            const redirectPort = ssl ? port : defaultPort;
-            res.writeHead(301, {
-              Location: `https://${host}:${redirectPort}${req.url}`
+          if (defaultPort && defaultPort !== port) {
+            redirectServer = http.createServer((req, res) => {
+              const host = req.headers.host;
+              const redirectPort = ssl ? port : 443;
+              res.writeHead(301, {
+                Location: `https://${host}:${redirectPort}${req.url}`
+              });
+              res.end();
             });
-            res.end();
-          });
 
-          redirectServer.listen(defaultPort);
-        }
+            redirectServer.on('error', (err) => {
+              console.error(`[devgate] redirect server failed to bind on port ${defaultPort}:`, err.message);
+            });
+            redirectServer.listen(defaultPort, () => {
+              resolve();
+            });
+          } else {
+            resolve();
+          }
+        };
+
+        httpsServer.listen(port, onHttpsListening);
       } catch (err) {
         reject(err);
       }

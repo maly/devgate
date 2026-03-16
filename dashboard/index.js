@@ -105,9 +105,9 @@ function renderLegacyDashboard({ routes = {}, health = {}, hostname = 'localhost
     ? '<tr><td colspan="3">No routes configured</td></tr>'
     : routeEntries.map(([alias, config]) => {
         const upstream = config.target || config.upstream || '-';
-        const status = health[alias]?.status || health[alias]?.healthy === true
+        const status = health[alias]?.status === 'healthy' || health[alias]?.healthy === true
           ? 'Healthy'
-          : health[alias]?.healthy === false
+          : health[alias]?.status === 'unhealthy' || health[alias]?.healthy === false
             ? 'Unhealthy'
             : 'Unknown';
         return `<tr><td>${escapeHtml(alias)}</td><td>${escapeHtml(upstream)}</td><td>${escapeHtml(status)}</td></tr>`;
