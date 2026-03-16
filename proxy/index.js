@@ -316,7 +316,7 @@ export function createProxy(options = {}) {
         if (defaultPort && defaultPort !== port) {
           redirectServer = http.createServer((req, res) => {
             const host = req.headers.host;
-            const redirectPort = ssl ? port : defaultPort;
+            const redirectPort = ssl ? port : 443;
             res.writeHead(301, {
               Location: `https://${host}:${redirectPort}${req.url}`
             });
