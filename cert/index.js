@@ -59,6 +59,18 @@ export class CertManager {
     }
   }
 
+  async _finalizeMkcertInstall(via) {
+    const verify = await this.checkMkcert({ force: true });
+    if (!verify) return null;
+    console.log('Running mkcert -install to create local CA...');
+    try {
+      execSync('mkcert -install', { stdio: 'inherit' });
+      return { success: true, message: `mkcert installed and CA created successfully via ${via}` };
+    } catch {
+      return { success: true, message: `mkcert installed successfully via ${via}. Run "mkcert -install" manually to create CA.` };
+    }
+  }
+
   async _installMkcertWindows() {
     try {
       try {
@@ -66,17 +78,8 @@ export class CertManager {
         if (wingetResult.includes('winget')) {
           console.log('Installing mkcert via winget...');
           execSync('winget install -e --id FiloSottile.mkcert --accept-source-agreements --accept-package-agreements', { stdio: 'inherit' });
-          
-          const verify = await this.checkMkcert({ force: true });
-          if (verify) {
-            console.log('Running mkcert -install to create local CA...');
-            try {
-              execSync('mkcert -install', { stdio: 'inherit' });
-              return { success: true, message: 'mkcert installed and CA created successfully via winget' };
-            } catch {
-              return { success: true, message: 'mkcert installed successfully via winget. Run "mkcert -install" manually to create CA.' };
-            }
-          }
+          const result = await this._finalizeMkcertInstall('winget');
+          if (result) return result;
         }
       } catch {
       }
@@ -86,23 +89,14 @@ export class CertManager {
         if (chocoResult.includes('Chocolatey')) {
           console.log('Installing mkcert via Chocolatey...');
           execSync('choco install mkcert -y', { stdio: 'inherit' });
-          
-          const verify = await this.checkMkcert({ force: true });
-          if (verify) {
-            console.log('Running mkcert -install to create local CA...');
-            try {
-              execSync('mkcert -install', { stdio: 'inherit' });
-              return { success: true, message: 'mkcert installed and CA created successfully via Chocolatey' };
-            } catch {
-              return { success: true, message: 'mkcert installed successfully via Chocolatey. Run "mkcert -install" manually to create CA.' };
-            }
-          }
+          const result = await this._finalizeMkcertInstall('Chocolatey');
+          if (result) return result;
         }
       } catch {
       }
 
-      return { 
-        success: false, 
+      return {
+        success: false,
         message: 'Could not install mkcert automatically. Please install manually:\n  winget install -e --id FiloSottile.mkcert\n  or\n  choco install mkcert'
       };
     } catch (error) {
@@ -116,21 +110,12 @@ export class CertManager {
       if (brewResult.includes('Homebrew')) {
         console.log('Installing mkcert via Homebrew...');
         execSync('brew install mkcert', { stdio: 'inherit' });
-        
-        const verify = await this.checkMkcert({ force: true });
-        if (verify) {
-          console.log('Running mkcert -install to create local CA...');
-          try {
-            execSync('mkcert -install', { stdio: 'inherit' });
-            return { success: true, message: 'mkcert installed and CA created successfully via Homebrew' };
-          } catch {
-            return { success: true, message: 'mkcert installed successfully via Homebrew. Run "mkcert -install" manually to create CA.' };
-          }
-        }
+        const result = await this._finalizeMkcertInstall('Homebrew');
+        if (result) return result;
       }
-      
-      return { 
-        success: false, 
+
+      return {
+        success: false,
         message: 'Could not install mkcert automatically. Please install manually:\n  brew install mkcert'
       };
     } catch (error) {
@@ -435,26 +420,19 @@ export class CertManager {
    * Force regeneration of certificates
    * @param {string[]} hostnames - List of hostnames to include in certificate
    */
+  async _unlinkIfExists(filePath) {
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+
   async regenerate(hostnames) {
-    try {
-      await fs.unlink(this.certPath);
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        throw error;
-      }
-    }
-
-    try {
-      await fs.unlink(this.keyPath);
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        throw error;
-      }
-    }
-
+    await this._unlinkIfExists(this.certPath);
+    await this._unlinkIfExists(this.keyPath);
     this._lastHostnames = null;
     this.expiration = null;
-
     await this.ensureCertificates(hostnames);
   }
 }
