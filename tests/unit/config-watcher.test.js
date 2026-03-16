@@ -120,6 +120,25 @@ describe('config-watcher', () => {
     high.stop();
   });
 
+  it('triggers reload on rename event (atomic save)', async () => {
+    let callback;
+    fs.watch.mockImplementation((_path, handler) => {
+      callback = handler;
+      return { close: vi.fn() };
+    });
+
+    const onChange = vi.fn().mockResolvedValue(undefined);
+    const watcher = createConfigWatcher({ configPath: './devgate.json', debounceMs: 350, onChange });
+    watcher.start();
+
+    callback('rename');
+
+    await new Promise((resolve) => setTimeout(resolve, 420));
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    watcher.stop();
+  });
+
   it('start is idempotent and does not leak watchers', () => {
     const close = vi.fn();
     fs.watch.mockReturnValue({ close });
