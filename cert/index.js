@@ -355,9 +355,9 @@ export class CertManager {
       keySize: 2048,
       altNames: allHostnames.map(hostname => {
         if (hostname.match(/^\d+\.\d+\.\d+\.\d+$/) || hostname === '::1') {
-          return { type: 2, value: hostname };
+          return { type: 7, value: hostname };
         }
-        return { type: 7, value: hostname };
+        return { type: 2, value: hostname };
       })
     });
 
