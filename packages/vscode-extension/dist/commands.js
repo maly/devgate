@@ -1,0 +1,56 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerCommands = registerCommands;
+const constants_js_1 = require("./constants.js");
+const commandMap_js_1 = require("./commandMap.js");
+function registerCommands(options) {
+    const commandMap = (0, commandMap_js_1.buildCommandMap)();
+    const executeDefinition = async (definition) => {
+        try {
+            if (definition.mode === 'oneshot') {
+                const result = await options.runOneShot(definition.args);
+                if (!result.ok) {
+                    options.showError(`${definition.title} failed (exit ${result.exitCode}).`);
+                }
+                return;
+            }
+            if (definition.mode === 'start') {
+                await options.start(definition.args);
+                options.showInfo(`${definition.title} started.`);
+                return;
+            }
+            await options.stop();
+            options.showInfo('Devgate stopped.');
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            options.showError(message);
+        }
+    };
+    for (const definition of Object.values(commandMap)) {
+        const disposable = options.registerCommand(definition.id, async () => {
+            await executeDefinition(definition);
+        });
+        options.subscriptions.push(disposable);
+    }
+    const quickActions = options.registerCommand(constants_js_1.COMMANDS.statusQuickActions, async () => {
+        const pick = await options.showQuickPick([
+            { label: 'Start', id: constants_js_1.COMMANDS.start },
+            { label: 'Start (Force)', id: constants_js_1.COMMANDS.startForce },
+            { label: 'Stop', id: constants_js_1.COMMANDS.stop },
+            { label: 'Open Output', id: 'output' }
+        ], { title: 'Devgate Actions' });
+        if (!pick)
+            return;
+        if (pick.id === 'output') {
+            options.output.show(false);
+            return;
+        }
+        const def = commandMap[pick.id];
+        if (def) {
+            await executeDefinition(def);
+        }
+    });
+    options.subscriptions.push(quickActions);
+}
+exports.default = { registerCommands };

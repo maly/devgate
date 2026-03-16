@@ -1,0 +1,11 @@
+  {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "build-devgate-extension",
+        "type": "shell",
+        "command": "npx tsc -p ./packages/vscode-extension/tsconfig.json",
+        "problemMatcher": "$tsc"
+      }
+    ]
+  }

@@ -145,6 +145,17 @@ Create a `devgate.json` file in your project root. Here's a complete example:
 
 ## CLI Commands
 
+### help
+
+Show global help or command-specific help:
+
+```bash
+devgate help
+devgate help start
+devgate --help
+devgate start --help
+```
+
 ### setup
 
 Prepare local environment for first use:
@@ -288,6 +299,20 @@ Decision table:
 | macOS/Linux | `sslip` | any | `sslip` | no |
 | macOS/Linux | `devgate` or `auto` | `ready` | `devgate` | no |
 | macOS/Linux | `devgate` or `auto` | `missing`/`unsupported`/`error` | `sslip` | yes |
+
+### install-mkcert
+
+Install `mkcert` automatically when possible:
+
+```bash
+devgate install-mkcert
+devgate install-mkcert --help
+```
+
+Behavior:
+- If already installed, prints current `mkcert` version.
+- If missing, attempts install via platform package manager.
+- On successful install, run `mkcert -install`.
 
 ## VS Code Extension (MVP)
 

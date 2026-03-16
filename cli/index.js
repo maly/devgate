@@ -449,9 +449,10 @@ function printCommandHelp(command) {
     print-hosts      Print generated hostnames
     doctor           Run diagnostics
     init             Configure routes (wizard/non-interactive)
-    install-mkcert  Install mkcert automatically
+    install-mkcert   Install mkcert automatically
     domain           Manage .devgate resolver setup
-    setup           Prepare local environment for first use
+    setup            Prepare local environment for first use
+    help             Show help (global or per command)
 
   Options:
     --help, -h         Show help for a command
@@ -1228,6 +1229,12 @@ async function run(args = process.argv.slice(2)) {
 
   if (command === '--help' || command === '-h') {
     printCommandHelp('');
+    return { exitCode: 0 };
+  }
+
+  if (command === 'help') {
+    const helpTarget = args[1] || '';
+    printCommandHelp(helpTarget);
     return { exitCode: 0 };
   }
 

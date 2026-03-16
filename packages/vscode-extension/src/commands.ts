@@ -4,7 +4,7 @@ import { CommandDefinition } from './types.js';
 
 interface RegisterCommandsOptions {
   registerCommand: (id: string, handler: () => Promise<void>) => { dispose(): void };
-  showQuickPick: (items: Array<{ label: string; id: string }>, options: { title: string }) => Promise<{ label: string; id: string } | undefined>;
+  showQuickPick: (items: Array<{ label: string; id: string }>, options: { title: string }) => PromiseLike<{ label: string; id: string } | undefined>;
   showError: (message: string) => void;
   showInfo: (message: string) => void;
   runOneShot: (args: string[]) => Promise<{ ok: boolean; exitCode: number }>;

@@ -7,7 +7,9 @@
   "engines": {
     "vscode": "^1.95.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [
     "onCommand:devgate.init",
     "onCommand:devgate.setup",
@@ -22,19 +24,51 @@
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
-      { "command": "devgate.init", "title": "Devgate: Init" },
-      { "command": "devgate.setup", "title": "Devgate: Setup" },
-      { "command": "devgate.start", "title": "Devgate: Start" },
-      { "command": "devgate.startForce", "title": "Devgate: Start (Force)" },
-      { "command": "devgate.stop", "title": "Devgate: Stop" },
-      { "command": "devgate.doctor", "title": "Devgate: Doctor" },
-      { "command": "devgate.domainStatus", "title": "Devgate: Domain Status" },
-      { "command": "devgate.domainSetup", "title": "Devgate: Domain Setup" },
-      { "command": "devgate.domainTeardown", "title": "Devgate: Domain Teardown" }
+      {
+        "command": "devgate.init",
+        "title": "Devgate: Init"
+      },
+      {
+        "command": "devgate.setup",
+        "title": "Devgate: Setup"
+      },
+      {
+        "command": "devgate.start",
+        "title": "Devgate: Start"
+      },
+      {
+        "command": "devgate.startForce",
+        "title": "Devgate: Start (Force)"
+      },
+      {
+        "command": "devgate.stop",
+        "title": "Devgate: Stop"
+      },
+      {
+        "command": "devgate.doctor",
+        "title": "Devgate: Doctor"
+      },
+      {
+        "command": "devgate.domainStatus",
+        "title": "Devgate: Domain Status"
+      },
+      {
+        "command": "devgate.domainSetup",
+        "title": "Devgate: Domain Setup"
+      },
+      {
+        "command": "devgate.domainTeardown",
+        "title": "Devgate: Domain Teardown"
+      }
     ]
   },
   "scripts": {
     "build": "tsc -p ./tsconfig.json",
     "test": "vitest run packages/vscode-extension/tests"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/vscode": "^1.110.0",
+    "typescript": "^5.9.3"
   }
 }

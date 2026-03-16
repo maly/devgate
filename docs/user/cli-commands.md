@@ -24,8 +24,22 @@ Highlights:
 | `print-hosts` | Print generated hostnames |
 | `doctor` | Run diagnostics |
 | `init` | Configure routes (wizard/non-interactive) |
+| `install-mkcert` | Install mkcert automatically |
 | `domain` | Manage `.devgate` resolver setup |
 | `setup` | Prepare local environment for first use |
+
+## help
+
+Show global help or command-specific help.
+
+```bash
+devgate help
+devgate help start
+devgate --help
+devgate start --help
+```
+
+Use `devgate help <command>` to print details for one command.
 
 ## start
 
@@ -278,6 +292,21 @@ devgate setup --json --verbose
 - `exit_code`:
   - non-dry-run -> based on `start_ready`
   - dry-run -> based on `projected_start_ready`
+
+## install-mkcert
+
+Install `mkcert` automatically when possible.
+
+```bash
+devgate install-mkcert
+devgate install-mkcert --help
+```
+
+Behavior:
+- If `mkcert` is already available, prints detected version and exits with `0`.
+- If missing, attempts platform-specific installation (Chocolatey/Homebrew/apt/dnf).
+- On success, prints next step `mkcert -install`.
+- On failure, exits with `1` and prints remediation guidance.
 
 ## init
 

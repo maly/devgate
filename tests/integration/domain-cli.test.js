@@ -407,4 +407,26 @@ describe('domain CLI integration', () => {
     const parsed = JSON.parse(logs.join('\n'));
     expect(parsed.details.logs).toBeTruthy();
   });
+
+  it('help command prints global command list', async () => {
+    const result = await cli.run(['help']);
+    const output = logs.join('\n');
+
+    expect(result.exitCode).toBe(0);
+    expect(output).toContain('Commands:');
+    expect(output).toContain('start');
+    expect(output).toContain('init');
+    expect(output).toContain('setup');
+    expect(output).toContain('install-mkcert');
+    expect(output).toContain('domain');
+  });
+
+  it('help command supports specific target command', async () => {
+    const result = await cli.run(['help', 'start']);
+    const output = logs.join('\n');
+
+    expect(result.exitCode).toBe(0);
+    expect(output).toContain('devgate start --config <path> [options]');
+    expect(output).toContain('--force');
+  });
 });
