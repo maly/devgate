@@ -308,9 +308,11 @@ export class CertManager {
         ...allHostnames
       ];
 
-      await execAsync(`mkcert ${args.join(' ')}`, { 
-        cwd: this.certDir,
-        stdio: 'pipe'
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+      await execFileAsync('mkcert', args, {
+        cwd: this.certDir
       });
 
       this.mode = 'mkcert';
