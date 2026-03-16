@@ -1022,6 +1022,7 @@ async function doctorCommand(args) {
     console.log('  OK');
     console.log('');
   } catch (err) {
+    hasErrors = true;
   }
 
   if (ipResult) {
