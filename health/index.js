@@ -196,13 +196,6 @@ export class HealthChecker {
         this.startRouteHealthCheck(route.alias, route);
       }
     }
-
-    // Update existing routes that have healthcheck
-    for (const route of routes) {
-      if (route.healthcheck && currentAliases.has(route.alias)) {
-        this.startRouteHealthCheck(route.alias, route);
-      }
-    }
   }
 }
 
