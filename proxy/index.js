@@ -270,7 +270,9 @@ export function createProxy(options = {}) {
       socket.destroy();
     });
 
-    wsProxy.ws(req, socket, head);
+    wsProxy.ws(req, socket, head, () => {
+      wsProxy.close();
+    });
   };
 
   const start = () => {
