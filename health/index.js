@@ -131,31 +131,23 @@ export class HealthChecker {
       }
     });
 
-    req.on('error', (err) => {
+    const markUnhealthy = (errorMessage) => {
       const currentStatus = this.routes.get(alias) || {};
-
       this.routes.set(alias, {
         ...currentStatus,
         status: 'unhealthy',
         httpStatus: null,
         lastError: new Date().toISOString(),
-        errorMessage: err.message,
+        errorMessage,
         consecutiveFailures: (currentStatus.consecutiveFailures || 0) + 1
       });
-    });
+    };
+
+    req.on('error', (err) => markUnhealthy(err.message));
 
     req.on('timeout', () => {
       req.destroy();
-      const currentStatus = this.routes.get(alias) || {};
-
-      this.routes.set(alias, {
-        ...currentStatus,
-        status: 'unhealthy',
-        httpStatus: null,
-        lastError: new Date().toISOString(),
-        errorMessage: 'Request timeout',
-        consecutiveFailures: (currentStatus.consecutiveFailures || 0) + 1
-      });
+      markUnhealthy('Request timeout');
     });
   }
 
