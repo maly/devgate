@@ -27,8 +27,8 @@ export class CertManager {
   /**
    * Check if mkcert is available in the system PATH
    */
-  async checkMkcert() {
-    if (this._mkcertAvailable !== null) {
+  async checkMkcert({ force = false } = {}) {
+    if (!force && this._mkcertAvailable !== null) {
       return this._mkcertAvailable;
     }
 
@@ -67,7 +67,7 @@ export class CertManager {
           console.log('Installing mkcert via winget...');
           execSync('winget install -e --id FiloSottile.mkcert --accept-source-agreements --accept-package-agreements', { stdio: 'inherit' });
           
-          const verify = await this.checkMkcert();
+          const verify = await this.checkMkcert({ force: true });
           if (verify) {
             console.log('Running mkcert -install to create local CA...');
             try {
@@ -87,7 +87,7 @@ export class CertManager {
           console.log('Installing mkcert via Chocolatey...');
           execSync('choco install mkcert -y', { stdio: 'inherit' });
           
-          const verify = await this.checkMkcert();
+          const verify = await this.checkMkcert({ force: true });
           if (verify) {
             console.log('Running mkcert -install to create local CA...');
             try {
@@ -117,7 +117,7 @@ export class CertManager {
         console.log('Installing mkcert via Homebrew...');
         execSync('brew install mkcert', { stdio: 'inherit' });
         
-        const verify = await this.checkMkcert();
+        const verify = await this.checkMkcert({ force: true });
         if (verify) {
           console.log('Running mkcert -install to create local CA...');
           try {
@@ -149,7 +149,7 @@ export class CertManager {
         execSync('sudo apt install libnss3-tools', { stdio: 'inherit' });
         execSync('sudo apt install mkcert', { stdio: 'inherit' });
         
-        const verify = await this.checkMkcert();
+        const verify = await this.checkMkcert({ force: true });
         if (verify) {
           console.log('Running mkcert -install to create local CA...');
           try {
@@ -169,7 +169,7 @@ export class CertManager {
         execSync(`sudo curl -L -o /usr/local/bin/mkcert https://github.com/FiloSottile/mkcert/releases/download/${version}/mkcert-${version}-linux-${arch}`, { stdio: 'inherit' });
         execSync('sudo chmod +x /usr/local/bin/mkcert', { stdio: 'inherit' });
         
-        const verify = await this.checkMkcert();
+        const verify = await this.checkMkcert({ force: true });
         if (verify) {
           console.log('Running sudo mkcert -install to create local CA...');
           try {
