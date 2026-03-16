@@ -323,6 +323,9 @@ export function createProxy(options = {}) {
             res.end();
           });
 
+          redirectServer.on('error', (err) => {
+            console.error(`[devgate] redirect server failed to bind on port ${defaultPort}:`, err.message);
+          });
           redirectServer.listen(defaultPort);
         }
       } catch (err) {
