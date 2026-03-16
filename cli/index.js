@@ -970,15 +970,21 @@ async function doctorCommand(args) {
   };
 
   const portsToCheck = [80, 443, 8080, 8443];
+  let anyPortInUse = false;
   for (const port of portsToCheck) {
     const result = await testPort(port);
     if (result.available) {
       console.log(`  Port ${port}: Available`);
     } else {
       console.log(`  Port ${port}: In use (${result.error})`);
+      anyPortInUse = true;
     }
   }
-  console.log('  OK');
+  if (anyPortInUse) {
+    hasErrors = true;
+  } else {
+    console.log('  OK');
+  }
   console.log('');
 
   if (doctorRuntimeConfig) {
