@@ -267,6 +267,7 @@ export function createProxy(options = {}) {
     });
 
     wsProxy.on('error', () => {
+      wsProxy.close();
       socket.destroy();
     });
 
